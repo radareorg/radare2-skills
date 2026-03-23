@@ -19,3 +19,4 @@ Then create a careful plan to improve the code quality following some hints and 
 - use radare2 APIs for processing strings, arrays, vectors, hahstables, instead of glib/libc
 - code must be portable, clean and prefer simpler, shorter logic
 - do surgically well thought patches with the aim of overall LOC reduction with readability in mind
+- static functions should not have R_RETURN statements
