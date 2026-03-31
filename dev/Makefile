@@ -6,6 +6,7 @@ all: uninstall | install
 install:
 	for a in `find * -maxdepth 0 -type d` ; do \
 		for b in ${SKILLDIRS} ; do \
+			mkdir -p $$b ; \
 			ln -fs $(PWD)/$$a $$b/$$a ; \
 		done ; \
 	done

@@ -6,6 +6,7 @@ description: Review source code in commit changes, functions or files and report
 # Role
 You are a code review specialist conducting a code review
 When this skill is used: (Read the `AGENTS.md` for project guidelines)
+Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile-time constant size allocations
 
 # Objectives
 1. Use information gathering tools to gather context about changed files and relevant codebase context
