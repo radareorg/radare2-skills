@@ -1,22 +1,63 @@
 ---
 name: aiclean
-description: Clean and refactor code with a focus on unnecessary complexity, reducing lines of code while improving readability.
+description: Clean and refactor code with a focus on unnecessary complexity, reducing lines of code, improving readability, and preferring radare2-native portable APIs.
 ---
 
-When this skill is used: (Read the `AGENTS.md` for project guidelines)
+When this skill is used:
 
-1. Check uncommited changes, functions or urls given as context or related to the specified task.
-2. Analyze the files involved and take a list of common coding practices from the project
+Read the `AGENTS.md` for project guidelines first.
 
-Then create a careful plan to improve the code quality following some hints and others that 
+Workflow:
+
+1. Check uncommitted changes, functions, or URLs given as context or related to the specified task.
+2. Analyze the files involved and take a list of common coding practices from the project.
+3. Inspect recent cleanup-oriented history in the same subsystem before patching.
+   Search for commits using terms like `clean`, `cleanup`, `refactor`, `simplify`, `dedup`, `portable`, `dead code`, `reuse`.
+4. Create a small plan that favors behavior-preserving simplification, LOC reduction, and safer ownership/bounds handling.
+5. Validate with focused tests or builds for the touched area when feasible.
+
+Then improve the code quality following these rules:
 
 - define and assign variables in the very same line if possible
-  - (prefer `bool a = true;` instead of `bool a; a=true`
+  Prefer `bool a = true;` instead of `bool a; a = true;`
+- prefer small, surgical patches over broad rewrites
+- preserve behavior first; when cleanup changes behavior, back it with tests or clear bug evidence
 - identify repeated logic that can be unified
+- when 2 or more paths perform the same walk, parse, or format, extract a helper/table/callback instead of keeping copy-pasted branches
 - be positive for if/else the conditionals (if must be the true/valid case)
-- do not use goto statements, refactor long functions into shorter ones
+- flatten nesting with early returns and continue statements
+- do not use goto statements for retry flow; refactor long functions into shorter ones
+- a cleanup label is acceptable only when it clearly centralizes resource release in a complex function
 - main objective is to reduce LOCs and make the code more readable and clean
-- use radare2 APIs for processing strings, arrays, vectors, hahstables, instead of glib/libc
+- use radare2 APIs for processing strings, arrays, vectors, and hash tables instead of glib/libc
+- identify dead code and eliminate it
 - code must be portable, clean and prefer simpler, shorter logic
 - do surgically well thought patches with the aim of overall LOC reduction with readability in mind
-- static functions should not have R_RETURN statements
+- static functions should not have `R_RETURN_*` statements
+- public `R_API` entry points should use `R_RETURN_*` for programmer-error precondition checks
+- remove unnecessary null checks when the contract or surrounding guards already guarantee non-null
+- do not remove runtime checks that protect real allocation, IO, ownership, or bounds failures
+- cache deep dereferences or repeated getters in locals when it reduces noise
+  Prefer patterns like `RPanelPos *pos = &p->view->pos;` or `const ut64 bsz = core->blocksize;`
+- clamp or validate sizes, offsets, counts, and radii once before entering loops
+- once bounds are proven, simplify the inner loop instead of repeating the same checks on every iteration
+- replace raw sentinels and magic casts with named constants/macros like `UT64_MAX`, `R_MIN`, `R_MAX`, and `COUNT`
+- prefer radare2-native helpers over ad-hoc code
+  Use `r_strbuf_*` or `r_str_newf` instead of repeated append chains or `sprintf`/`strcat`
+  Use `r_read_le*` and `r_read_be*` instead of open-coded byte parsing
+  Use `r_mem_dup`, `r_list_purge`, `R_NEWS0`, vector/list helpers, `RTable`, `Sdb`, and other existing r2 primitives before inventing new helpers
+- when output is built in loops, prefer `_tostring` helpers plus one buffered print over many `r_cons_printf` calls
+- remove hidden global state when a local context/state object can be passed explicitly
+- prefer a single ownership path for allocation/free/reset logic; cleanup patches should often remove leaks at the same time
+- avoid libc patterns that hurt portability or safety
+  Avoid `sprintf`, `strcpy`, `strcat`, open-coded endian reads, UB-prone casts, and non-portable format strings
+  Use `<r_types.h>` types and `PFMT64` macros
+
+Patterns repeatedly seen in `radare2` cleanup history:
+
+- deduplicate nearest-match or traversal logic by extracting a shared helper that accepts a small predicate/callback
+- replace manual string construction with `RStrBuf`, then drain once at the end
+- convert print-heavy helpers into `*_tostring` style functions to lower `RCons` pressure
+- precompute validated loop invariants once, like clamped slot counts, `slot_off`, or local block size, then keep the loop body simple
+- replace retry `goto` blocks with a bounded `for (;;)` loop and a `retried` flag
+- reduce dependency on ambient state like `core->block` or file-global structs by reading into local buffers and passing explicit state around
