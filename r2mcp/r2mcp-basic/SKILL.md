@@ -1,5 +1,5 @@
 ---
-name: reverse-engineering
+name: r2mcp-basic
 description: Use the bundled r2mcp MCP server for binary analysis, disassembly, and reverse-engineering tasks.
 ---
 
