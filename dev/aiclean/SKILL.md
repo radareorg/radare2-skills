@@ -20,6 +20,7 @@ Then improve the code quality following these rules:
 
 - define and assign variables in the very same line if possible
   Prefer `bool a = true;` instead of `bool a; a = true;`
+- Use the correct type for variables and return types. f.ex: use bool instead of int when possible values are 0 or 1.
 - prefer small, surgical patches over broad rewrites
 - preserve behavior first; when cleanup changes behavior, back it with tests or clear bug evidence
 - identify repeated logic that can be unified
@@ -35,7 +36,7 @@ Then improve the code quality following these rules:
 - do surgically well thought patches with the aim of overall LOC reduction with readability in mind
 - static functions should not have `R_RETURN_*` statements
 - public `R_API` entry points should use `R_RETURN_*` for programmer-error precondition checks
-- remove unnecessary null checks when the contract or surrounding guards already guarantee non-null
+- remove unnecessary null checks when the contract or surrounding guards already guarantee non-null, analyze the codepaths that lead to each case and remove the unnecessary checks.
 - do not remove runtime checks that protect real allocation, IO, ownership, or bounds failures
 - cache deep dereferences or repeated getters in locals when it reduces noise
   Prefer patterns like `RPanelPos *pos = &p->view->pos;` or `const ut64 bsz = core->blocksize;`
