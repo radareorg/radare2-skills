@@ -1,5 +1,5 @@
 ---
-name: aitodosolve
+name: aisolve
 description: Solve a random TODO or XXX comment
 ---
 
