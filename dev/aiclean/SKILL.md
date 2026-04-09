@@ -58,6 +58,7 @@ Patterns repeatedly seen in `radare2` cleanup history:
 
 - deduplicate nearest-match or traversal logic by extracting a shared helper that accepts a small predicate/callback
 - replace manual string construction with `RStrBuf`, then drain once at the end
+- functions used only inside a file with no external references must be `static`
 - convert print-heavy helpers into `*_tostring` style functions to lower `RCons` pressure
 - precompute validated loop invariants once, like clamped slot counts, `slot_off`, or local block size, then keep the loop body simple
 - replace retry `goto` blocks with a bounded `for (;;)` loop and a `retried` flag

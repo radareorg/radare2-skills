@@ -45,4 +45,3 @@ When running a command that starts with "'", the command parser will ignore all 
 See `r_name_filter`, and all the `r_str_sanitize` apis to understand their purpose and use them wisely, do not reduce the.
 
 Some commands accept `base64:` arguments. Use them if we really need raw data accepting any characters.
-
