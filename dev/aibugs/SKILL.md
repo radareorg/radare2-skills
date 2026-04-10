@@ -40,6 +40,11 @@ In the code above, if `hello` was controlled by the user they can include a quot
 When running a command that starts with "'", the command parser will ignore all the special characters and just run the command with given arguments.
 - if the command is a system shell escape `!` there can be still code injection bugs, see the sanitize for `sh` in this case
 
+## Shell injection bugs
+
+* See `r_str_sanitize_sh` and the `r_sys_cmd` apis
+* Ensure all this follows the right strict rules from the `r_sandbox` settings
+
 ## Sanitization APIs:
 
 See `r_name_filter`, and all the `r_str_sanitize` apis to understand their purpose and use them wisely, do not reduce the.
