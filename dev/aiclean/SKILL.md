@@ -48,7 +48,8 @@ Then improve the code quality following these rules:
   Use `r_read_le*` and `r_read_be*` instead of open-coded byte parsing
   Use `r_mem_dup`, `r_list_purge`, `R_NEWS0`, vector/list helpers, `RTable`, `Sdb`, and other existing r2 primitives before inventing new helpers
 - When output is built in loops, prefer `_tostring` helpers plus one buffered print over many `r_cons_printf` calls
-- Avoid multi-line comments, only document functions if function name is not clear enough
+- Avoid multi-line comments, only use single-line comments before the function signature if function name is not clear enough
+- Do not use non-portable libc-functions, code must work on Windows too
 - Remove hidden global state when a local context/state object can be passed explicitly
 - Prefer a single ownership path for allocation/free/reset logic; cleanup patches should often remove leaks at the same time
 - Avoid libc patterns that hurt portability or safety
