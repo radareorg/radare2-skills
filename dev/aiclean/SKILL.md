@@ -18,6 +18,7 @@ Workflow:
 
 Then improve the code quality following these rules:
 
+- Reduce double dereferences by caching pointers as local variables
 - Define and assign variables in the very same line if possible
   Prefer `bool a = true;` instead of `bool a; a = true;`
 - Use the correct type for variables and return types. f.ex: use bool instead of int when possible values are 0 or 1.
