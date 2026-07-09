@@ -28,6 +28,7 @@ Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile
 - **Functional Correctness**: Does the code do what it's supposed to?
 - **API Contract Violations**: Breaking changes, incorrect return types
 - **Database/Data Errors**: Data integrity issues, race conditions
+- **Reimplementation**: New code duplicating an existing API, helper, or command — including plain libc calls where `r_util` has a richer equivalent (e.g. repeated `strrchr` scans vs `r_str_rchr` with a resume position); only flag when you can name the existing symbol
 
 # Areas to Avoid
 - Style, readability, or variable naming preferences
