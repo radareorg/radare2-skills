@@ -13,8 +13,11 @@ Workflow:
 2. Analyze the files involved and take a list of common coding practices from the project.
 3. Inspect recent cleanup-oriented history in the same subsystem before patching.
    Search for commits using terms like `clean`, `cleanup`, `refactor`, `simplify`, `dedup`, `portable`, `dead code`, `reuse`.
-4. Create a small plan that favors behavior-preserving simplification, LOC reduction, and safer ownership/bounds handling.
-5. Validate with focused tests or builds for the touched area when feasible.
+4. Search for an existing API before polishing any new walk, parse, or traversal.
+   Grep `libr/include/` for `_foreach`, `_recurse`, `_dfs`, `_iter` and check the `cmd_*.inc.c` help tables; deleting new code in favor of an existing API is the best cleanup.
+5. Create a small plan that favors behavior-preserving simplification, LOC reduction, and safer ownership/bounds handling.
+   Sweep every new or changed construct (each struct, loop, string test, arithmetic expression, null check, and duplicated block) against the rules below rather than only the obvious spots — maintainer review nitpicks tend to hit the constructs a quick pass skips.
+6. Validate with focused tests or builds for the touched area when feasible.
 
 Then improve the code quality following these rules:
 
@@ -22,10 +25,19 @@ Then improve the code quality following these rules:
 - Define and assign variables in the very same line if possible
   Prefer `bool a = true;` instead of `bool a; a = true;`
 - Use the correct type for variables and return types. f.ex: use bool instead of int when possible values are 0 or 1.
+- Use `R_STR_ISEMPTY (s)` / `R_STR_ISNOTEMPTY (s)` for empty-or-null string tests instead of `!s || !*s` / `s && *s`
+- Order struct fields widest-first (pointers and 64-bit types, then 32-bit, then `bool`/`char` last) so the compiler inserts no padding
+- Prefer a heap `char *` (`strdup`, `r_str_newf`) over a fixed `char buf[N]` when the string length is unbounded (type, symbol, or user-supplied names); fixed buffers silently truncate
+- Parenthesize sub-expressions in mixed-operator arithmetic, e.g. `((ut64)i * stride) + (off / size)`, so precedence is explicit
 - Prefer small, surgical patches over broad rewrites
 - Preserve behavior first; when cleanup changes behavior, back it with tests or clear bug evidence
 - Identify repeated logic that can be unified
 - When 2 or more paths perform the same walk, parse, or format, extract a helper/table/callback instead of keeping copy-pasted branches
+- Extract the shared tail into one helper when two loops differ only in their up-front filtering
+- Fold `if` blocks that differ only in data into one loop over a static table
+- Replace parallel candidate fields or fallback branches with a small array plus a loop
+- Skip pure style calls; only propose changes with a real LOC or readability win
+- Mention code you examined and left alone; some functions are as long as they need to be
 - Be positive for if/else the conditionals (if must be the true/valid case)
 - Flatten nesting with early returns and continue statements
 - Do not use goto statements for retry flow; refactor long functions into shorter ones
@@ -48,6 +60,7 @@ Then improve the code quality following these rules:
   Use `r_strbuf_*` or `r_str_newf` instead of repeated append chains or `sprintf`/`strcat`
   Use `r_read_le*` and `r_read_be*` instead of open-coded byte parsing
   Use `r_mem_dup`, `r_list_purge`, `R_NEWS0`, vector/list helpers, `RTable`, `Sdb`, and other existing r2 primitives before inventing new helpers
+  Use the `r_str.h` char-scan family (`r_str_rchr`, `r_str_lchr`, `r_str_nchr`, `r_sub_str_rchr`) over `strchr`/`strrchr` chains; `r_str_rchr` takes a start position, so a second backward search resumes from the previous match instead of rescanning
 - When output is built in loops, prefer `_tostring` helpers plus one buffered print over many `r_cons_printf` calls
 - Avoid multi-line comments, only use single-line comments before the function signature if function name is not clear enough
 - Do not use non-portable libc-functions, code must work on Windows too
@@ -59,8 +72,11 @@ Then improve the code quality following these rules:
 
 Patterns repeatedly seen in `radare2` cleanup history:
 
+- Replace hand-rolled traversals with existing `*_foreach`/`*_recurse` APIs
+  `r_anal_block_recurse_depth_first` already yields post-order via `on_exit`
 - Deduplicate nearest-match or traversal logic by extracting a shared helper that accepts a small predicate/callback
 - Replace manual string construction with `RStrBuf`, then drain once at the end
+- Replace back-to-back `strrchr` calls on one buffer with `r_str_rchr` resuming from the prior match
 - Functions used only inside a file with no external references must be `static`
 - Convert print-heavy helpers into `*_tostring` style functions to lower `RCons` pressure
 - Precompute validated loop invariants once, like clamped slot counts, `slot_off`, or local block size, then keep the loop body simple
