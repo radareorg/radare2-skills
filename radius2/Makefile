@@ -1,5 +1,5 @@
 PWD=$(shell pwd)
-SKILLDIRS=~/.claude/skills ~/.codex/skills
+include ../config.mk
 
 all: uninstall | install
 
