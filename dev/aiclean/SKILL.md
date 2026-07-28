@@ -36,6 +36,7 @@ Then improve the code quality following these rules:
 - Extract the shared tail into one helper when two loops differ only in their up-front filtering
 - Fold `if` blocks that differ only in data into one loop over a static table
 - Replace parallel candidate fields or fallback branches with a small array plus a loop
+- Keep a flat membership test as a `switch` with fallthrough cases; a table plus a scan loop is for branches that carry differing data
 - Skip pure style calls; only propose changes with a real LOC or readability win
 - Mention code you examined and left alone; some functions are as long as they need to be
 - Be positive for if/else the conditionals (if must be the true/valid case)
@@ -59,6 +60,8 @@ Then improve the code quality following these rules:
 - Prefer radare2-native helpers over ad-hoc code
   Use `r_strbuf_*` or `r_str_newf` instead of repeated append chains or `sprintf`/`strcat`
   Use `r_read_le*` and `r_read_be*` instead of open-coded byte parsing
+  Parse user-supplied numbers with `r_num_get`/`r_num_math` (command handlers have `core->num`) instead of `atoi`/`strtol`/`sscanf`, so `0x` forms, negative values, flags and expressions all resolve; `atoi` on a value printed in hex silently yields the wrong number
+  When "not a number" has to be told apart from a valid `0`, use `r_num_get_err`/`r_num_math_err` and test the `err` out-param, or `r_num_failed (core->num)` — the plain forms return `0` for garbage, so a bare replacement can turn a typo into a silent hit on whatever lives at offset 0
   Use `r_mem_dup`, `r_list_purge`, `R_NEWS0`, vector/list helpers, `RTable`, `Sdb`, and other existing r2 primitives before inventing new helpers
   Use the `r_str.h` char-scan family (`r_str_rchr`, `r_str_lchr`, `r_str_nchr`, `r_sub_str_rchr`) over `strchr`/`strrchr` chains; `r_str_rchr` takes a start position, so a second backward search resumes from the previous match instead of rescanning
 - When output is built in loops, prefer `_tostring` helpers plus one buffered print over many `r_cons_printf` calls
