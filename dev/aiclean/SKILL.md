@@ -51,6 +51,7 @@ Then improve the code quality following these rules:
 - Static functions should not have `R_RETURN_*` statements
 - Public `R_API` entry points should use `R_RETURN_*` for programmer-error precondition checks
 - Remove unnecessary null checks when the contract or surrounding guards already guarantee non-null, analyze the codepaths that lead to each case and remove the unnecessary checks.
+- Do not route a value through NULL just to test it: `p = p? p + n: NULL;` followed by `if (!p)` should branch on the original condition once, and a second such pair for a fallback case folds into one if/else
 - Do not remove runtime checks that protect real allocation, IO, ownership, or bounds failures
 - Cache deep dereferences or repeated getters in locals when it reduces noise
   Prefer patterns like `RPanelPos *pos = &p->view->pos;` or `const ut64 bsz = core->blocksize;`
