@@ -7,6 +7,7 @@ This repository contains useful skills to help your agents use radare2 better
 * Finding Vulnerabilities
 * Explotiing Bugs
 * Analizing Binaries
+* Querying and annotating analysis with SQL (r2xsql)
 * Create function signatures
 * Comparing binaries
 * Improve decompiler output
