@@ -67,6 +67,7 @@ Then improve the code quality following these rules:
   Use the `r_str.h` char-scan family (`r_str_rchr`, `r_str_lchr`, `r_str_nchr`, `r_sub_str_rchr`) over `strchr`/`strrchr` chains; `r_str_rchr` takes a start position, so a second backward search resumes from the previous match instead of rescanning
 - When output is built in loops, prefer `_tostring` helpers plus one buffered print over many `r_cons_printf` calls
 - Avoid multi-line comments, only use single-line comments before the function signature if function name is not clear enough
+- Keep or add a one-line comment where an obvious simplification is wrong, recording why, so the next cleanup pass does not retry it
 - Do not use non-portable libc-functions, code must work on Windows too
 - Remove hidden global state when a local context/state object can be passed explicitly
 - Prefer a single ownership path for allocation/free/reset logic; cleanup patches should often remove leaks at the same time
@@ -78,6 +79,8 @@ Patterns repeatedly seen in `radare2` cleanup history:
 
 - Replace hand-rolled traversals with existing `*_foreach`/`*_recurse` APIs
   `r_anal_block_recurse_depth_first` already yields post-order via `on_exit`
+  Back-edge and dominator analysis already ship too: `r_anal_function_get_graph`, `r_graph_dfs_node` with `RGraphVisitor.back_edge`, and `r_graph_dom_tree`
+- Split a callback that both detects a condition and builds the structures needed only once it holds into two passes, so each does one job and the common case allocates nothing
 - Deduplicate nearest-match or traversal logic by extracting a shared helper that accepts a small predicate/callback
 - Replace manual string construction with `RStrBuf`, then drain once at the end
 - Replace back-to-back `strrchr` calls on one buffer with `r_str_rchr` resuming from the prior match
