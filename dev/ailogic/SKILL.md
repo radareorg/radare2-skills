@@ -45,6 +45,8 @@ When this skill is used: read `AGENTS.md` first and follow the project rules. Pa
    - Are all `r_*` calls checked when they can fail (allocation, IO, parse)?
    - Does every path return a meaningful value? Does failure free what success would have kept?
    - Macros like `R_NEW`/`R_NEW0` never return NULL (compile-time constant size), so do not add checks for them.
+   - Some mutators cannot report failure at all: `RVec*_push_back` and `set_u_add` return void and drop the element on OOM. Use `RVec*_emplace_back` and check the returned slot, or re-test with `set_u_contains`, wherever the caller's invariant needs the element to be present.
+   - A partially built table, set, or index is worse than none: on any element failure, free it and return the empty case, so callers fall back to their conservative path instead of trusting incomplete data.
 
 7. Hunt silent assumptions
    - "The list is non-empty", "the buffer is NUL-terminated", "the offset is aligned", "the seek will succeed".
@@ -72,6 +74,7 @@ When this skill is used: read `AGENTS.md` first and follow the project rules. Pa
 - `r_core_cmd*` return value ignored when the command can fail
 - Seek not restored after a temporary `r_core_seek`; prefer `call_at` or the `'@addr'cmd` form
 - Iterator invalidated mid-loop by `r_list_delete` instead of `r_list_delete_iter`
+- CFG walk assuming reducible flow: handwritten and obfuscated code jumps into the middle of loops, so a backward walk from a back-edge escapes past the header and swallows unrelated blocks; bail out when the walk reaches a block that precedes the header
 - Ownership confusion: same pointer freed on two paths, or freed by callee and caller
 - Integer overflow on `size * count` before allocation
 

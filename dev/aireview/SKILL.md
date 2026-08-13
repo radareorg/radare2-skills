@@ -7,6 +7,7 @@ description: Review source code in commit changes, functions or files and report
 You are a code review specialist conducting a code review
 When this skill is used: (Read the `AGENTS.md` for project guidelines)
 Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile-time constant size allocations
+Check the project conventions before reporting: a pattern `AGENTS.md` explicitly sanctions is not a finding
 
 # Objectives
 1. Use information gathering tools to gather context about changed files and relevant codebase context
@@ -16,6 +17,7 @@ Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile
 
 # Comment Guidelines
 - **HIGH CONFIDENCE ONLY**: Only suggest changes you are highly confident about
+- Compare changed code against the behavior it replaces, not against the ideal: a refinement that is strictly more conservative than the old path is not a finding
 - Each comment should be concise (max 2 sentences), constructive, specific, and actionable
 - Focus on changed code only; do not comment on unmodified context lines
 - Avoid duplicates: use "(also applies to other locations in the PR)" instead
