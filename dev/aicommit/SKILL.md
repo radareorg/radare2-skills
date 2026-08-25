@@ -6,9 +6,9 @@ description: Create a commit message to use for the currently unstaged changes
 When using this skill you must read the `AGENTS.md` to understand the general project guidelines.
 
 1. Check code changes
-  - Use `git diff` to chcek just the unstaged changes
+  - Use `git diff` to check the unstaged changes
   - Use `git diff HEAD` to see all the changes in this branch for extra context if necessary
-2. See `git lg master | head -n 40` to see some other commit messages as example.
+2. See `git log --oneline -40` to see some other commit messages as example.
 3. Analyze the benefits, reasoning, motivation for those changes to be made
   - Do not spend too much tim with this, we want to have a quick reasponse unless requested by the user
 4. Output must be the commit message that the user must use
@@ -19,6 +19,10 @@ When using this skill you must read the `AGENTS.md` to understand the general pr
 Extra rules:
 
 - Do not use emojis
+- Describe what users will notice now works or no longer breaks.
+- Lead with a direct verb: `Fix`, `Add`, `Remove`, `Keep`, or `Stop`.
+- Avoid internal design terms and vague jargon.
+- Use one natural line under 70 characters.
 - This is a read-only operation, do not change or touch any file
 - Output must be at least below 70 columns
 - Use a casual writing style inspired in the other commits you saw in main
