@@ -57,6 +57,8 @@ Then improve the code quality following these rules:
 - Code must be portable, clean and prefer simpler, shorter logic
 - Do surgically well thought patches with the aim of overall LOC reduction with readability in mind
 - Static functions should not have `R_RETURN_*` statements
+- Name a new file-local `static` helper for how it reads at the call site: short and predicate-shaped like `valid_addr`, `is_ret` or `has_default`, so the caller reads as `if (valid_addr (at))`
+- Drop the `r_` or subsystem prefix from a new `static`, which only namespaces exported symbols, unless the file already prefixes its own statics
 - Public `R_API` entry points should use `R_RETURN_*` for programmer-error precondition checks
 - Remove unnecessary null checks when the contract or surrounding guards already guarantee non-null, analyze the codepaths that lead to each case and remove the unnecessary checks.
 - Do not route a value through NULL just to test it: `p = p? p + n: NULL;` followed by `if (!p)` should branch on the original condition once, and a second such pair for a fallback case folds into one if/else
