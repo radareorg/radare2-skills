@@ -9,7 +9,8 @@ Read the `AGENTS.md` for project guidelines first.
 
 Workflow:
 
-1. Check uncommitted changes, functions, or URLs given as context or related to the specified task.
+1. Check the whole change: the branch diff against its merge-base plus any uncommitted work, and the functions or URLs given as context.
+   Code already committed on the branch is still unreviewed; a scope given by the invoker narrows within that diff, never below it.
 2. Analyze the files involved and take a list of common coding practices from the project.
 3. Inspect recent cleanup-oriented history in the same subsystem before patching.
    Search for commits using terms like `clean`, `cleanup`, `refactor`, `simplify`, `dedup`, `portable`, `dead code`, `reuse`.
