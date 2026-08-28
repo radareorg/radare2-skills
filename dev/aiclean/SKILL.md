@@ -19,6 +19,7 @@ Workflow:
    Grep the patched file too, for how it already expresses the same thing; matching the local idiom is usually cheaper than any new helper.
 5. Create a small plan that favors behavior-preserving simplification, LOC reduction, and safer ownership/bounds handling.
    Sweep every new or changed construct (each struct, loop, string test, arithmetic expression, null check, and duplicated block) against the rules below rather than only the obvious spots — maintainer review nitpicks tend to hit the constructs a quick pass skips.
+   Apply a fix that is about a concept at every call site of that concept, not only at the one that surfaced it.
 6. Validate with focused tests or builds for the touched area when feasible.
    Keep one case where the change must be inert (the other config value, the input outside the predicate) and check it is green on base and branch; two cases that fail for the same mutation are one case.
    Prove each behavior in the diff is tested: break it (invert the condition, drop the write, return early), name the test that fails, then restore the code before the next one; a behavior no test catches is untested however many tests pass.
