@@ -70,6 +70,7 @@ When this skill is used: read `AGENTS.md` first and follow the project rules. Pa
 - Missing branch in a `switch` over an enum that grew a new value
 - Boolean logic inverted after a refactor (`!` dropped or doubled)
 - State not reset between calls because a static or `core->` field leaks across invocations
+- A scoped fact moved from a parameter onto long-lived state, then read after the branch that set it has ended
 - Return value of `r_io_read_at` / `r_buf_read_at` ignored, partial reads treated as full
 - `r_core_cmd*` return value ignored when the command can fail
 - Seek not restored after a temporary `r_core_seek`; prefer `call_at` or the `'@addr'cmd` form
