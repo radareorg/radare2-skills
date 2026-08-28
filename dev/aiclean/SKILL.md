@@ -16,6 +16,7 @@ Workflow:
    Search for commits using terms like `clean`, `cleanup`, `refactor`, `simplify`, `dedup`, `portable`, `dead code`, `reuse`.
 4. Search for an existing API before polishing any new walk, parse, or traversal.
    Grep `libr/include/` for `_foreach`, `_recurse`, `_dfs`, `_iter` and check the `cmd_*.inc.c` help tables; deleting new code in favor of an existing API is the best cleanup.
+   Grep the patched file too, for how it already expresses the same thing; matching the local idiom is usually cheaper than any new helper.
 5. Create a small plan that favors behavior-preserving simplification, LOC reduction, and safer ownership/bounds handling.
    Sweep every new or changed construct (each struct, loop, string test, arithmetic expression, null check, and duplicated block) against the rules below rather than only the obvious spots — maintainer review nitpicks tend to hit the constructs a quick pass skips.
 6. Validate with focused tests or builds for the touched area when feasible.
@@ -40,6 +41,7 @@ Then improve the code quality following these rules:
 - Identify repeated logic that can be unified
 - When 2 or more paths perform the same walk, parse, or format, extract a helper/table/callback instead of keeping copy-pasted branches
 - Extract the shared tail into one helper when two loops differ only in their up-front filtering
+- Collapse varargs wrappers that forward to the same `va_list` worker differing only in a constant into one function plus one-line macros
 - Fold `if` blocks that differ only in data into one loop over a static table
 - Replace parallel candidate fields or fallback branches with a small array plus a loop
 - Keep a flat membership test as a `switch` with fallthrough cases; a table plus a scan loop is for branches that carry differing data
