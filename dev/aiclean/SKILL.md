@@ -83,6 +83,7 @@ Then improve the code quality following these rules:
 - Keep or add a one-line comment where an obvious simplification is wrong, recording why, so the next cleanup pass does not retry it
 - Do not use non-portable libc-functions, code must work on Windows too
 - Remove hidden global state when a local context/state object can be passed explicitly
+- Keep a scoped fact in a parameter; a field on shared state outlives the branch it describes and leaks into whatever runs next
 - Prefer a single ownership path for allocation/free/reset logic; cleanup patches should often remove leaks at the same time
 - Avoid libc patterns that hurt portability or safety
   Avoid `sprintf`, `strcpy`, `strcat`, open-coded endian reads, UB-prone casts, and non-portable format strings
