@@ -21,6 +21,9 @@ Workflow:
    Sweep every new or changed construct (each struct, loop, string test, arithmetic expression, null check, and duplicated block) against the rules below rather than only the obvious spots — maintainer review nitpicks tend to hit the constructs a quick pass skips.
 6. Validate with focused tests or builds for the touched area when feasible.
    Keep one case where the change must be inert (the other config value, the input outside the predicate) and check it is green on base and branch; two cases that fail for the same mutation are one case.
+   Prove each behavior in the diff is tested: break it (invert the condition, drop the write, return early), name the test that fails, then restore the code before the next one; a behavior no test catches is untested however many tests pass.
+   Check the mutation hits that behavior and nothing else, or its result means nothing.
+   Write new tests against a synthetic fixture (`malloc://` plus `wx`) rather than a real binary plus full analysis, whose output differs between hosts, and assert semantic fields instead of absolute character offsets, which move with unrelated strings.
 
 Then improve the code quality following these rules:
 
