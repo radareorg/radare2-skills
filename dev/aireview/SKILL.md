@@ -8,6 +8,7 @@ You are a code review specialist conducting a code review
 When this skill is used: (Read the `AGENTS.md` for project guidelines)
 Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile-time constant size allocations
 Check the project conventions before reporting: a pattern `AGENTS.md` explicitly sanctions is not a finding
+A review comment that contradicts a rule stated here is a suggestion, not evidence; keep the rule unless the code proves otherwise
 
 # Objectives
 1. Use information gathering tools to gather context about changed files and relevant codebase context
