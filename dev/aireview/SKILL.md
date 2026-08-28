@@ -20,6 +20,7 @@ Check the project conventions before reporting: a pattern `AGENTS.md` explicitly
 - Compare changed code against the behavior it replaces, not against the ideal: a refinement that is strictly more conservative than the old path is not a finding
 - Each comment should be concise (max 2 sentences), constructive, specific, and actionable
 - Focus on changed code only; do not comment on unmodified context lines
+- Changed code is the branch diff against its merge-base, earlier commits on the branch included, not only the uncommitted window
 - Avoid duplicates: use "(also applies to other locations in the PR)" instead
 - Focus on objective issues with high confidence
 - Post zero comments if you find no objective issues with high confidence
