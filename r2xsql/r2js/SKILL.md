@@ -28,8 +28,8 @@ From the CLI, raw r2 commands are reachable via:
 
 | transport          | syntax                                              |
 |--------------------|-----------------------------------------------------|
-| `r2xsql -q`/REPL    | a line starting with `.` runs a raw r2 command (the leading `.` is stripped), e.g. `r2xsql -s a.bin -q ".pdf @ entry0"` |
-| `r2xsql --http`     | `POST /query` body `.r2cmd <command>` → `{"success":true,"output":"…"}` |
+| r2 console          | you are already at an r2 prompt: type the command, e.g. `pdf @ entry0` |
+| r2 HTTP (`=h`)      | `POST /cmd/` with the command as the body, e.g. `-d 'pdf @ entry0'` — no SQL escape hatch needed, it is the same endpoint the SQL goes to |
 | in-r2 plugin       | the host `RCore *` is the r2 shell already          |
 | r2js inside r2     | `r2cmd("aflj")` returns JSON; round-trip via SQL    |
 | temp flags bridge  | r2js writes flags, SQL reads them via `flags` table |

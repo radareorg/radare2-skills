@@ -18,13 +18,20 @@ table schemas themselves, see the `connect` skill's
 | function                        | returns | description                                          |
 |---------------------------------|---------|------------------------------------------------------|
 | `regexp(pattern, text)`         | INT     | `1`/`0` ECMAScript-regex match; backs `text REGEXP 'pat'` |
-| `r2xsql_project_save('name')`    | TEXT    | save the session as r2 project `name` (`Ps`); returns `saved: name` |
-| `r2xsql_project_open('name')`    | TEXT    | load r2 project `name` (`P`); returns `opened: name` |
-| `r2xsql_type_define('<C decl>')` | TEXT    | define a type from a one-line C declaration (`td`); returns `ok` |
 
-`regexp()` backs `text REGEXP 'pat'` for `WHERE`/`SELECT` filtering. The three
-`r2xsql_*` functions mutate the session: project persistence and type creation.
-All other functions below are stock SQLite.
+`regexp()` backs `text REGEXP 'pat'` for `WHERE`/`SELECT` filtering. It is
+the only non-stock function, and the only one that ever will be: SQLite
+reserves the `REGEXP` syntax but ships no implementation, so the operator is
+a runtime error unless a host registers it. There is no radare2 command that
+expresses a regex match, which is what makes it different from everything
+that used to be on this list. Nothing here mutates the session; all other
+functions below are stock SQLite.
+
+Project save/open and type definition used to be SQL functions here. They
+are radare2 commands — `Ps <name>`, `P <name>`, `td <decl>` — reaching you
+over the same transport as the SQL, so a SQL wrapper bought nothing.
+`SELECT name FROM projects` and `SELECT name FROM types` still read the
+results back.
 
 ## Formatting addresses
 

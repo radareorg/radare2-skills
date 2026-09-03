@@ -21,7 +21,7 @@ For the mechanics of writing comments/flags, use `annotations`.
 Persistence is required. Always:
 
 ```bash
-r2xsql -w --project NAME -s <binary> -i
+radare2 -w -A <binary>        # then `sql <SQL>` / `sqlj <SQL>` at the prompt
 ```
 
 so every comment/flag you add gets saved to the project on exit.
@@ -80,7 +80,7 @@ Each pass over the binary makes the *next* pass cheaper:
   what their callees do.
 
 Persist with `Ps` (the backend does this automatically when
-`-w --project NAME` was passed). Reopen with `--project NAME` to
+`-w` was passed and you ran `Ps NAME`). Reopen with `-p NAME` to
 skip re-analysis and keep building.
 
 ## Type reconstruction

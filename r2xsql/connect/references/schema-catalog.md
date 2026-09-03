@@ -155,15 +155,16 @@ Source: `aflj`.
 | `tracecov` | INT64 | trace coverage |
 | `is_noreturn`, `is_pure`, `is_recursive` | INT | 0/1. `is_recursive` = the function calls itself |
 
-`r2xsql-full` fills this table from radare2's in-process analysis state instead
+r2xsql fills this table from radare2's in-process analysis state instead
 of running `aflj`; the rows are identical. `prototype` is the one field radare2
 must build per function, so it is computed only when a query selects it.
 
 > **Two columns move with the data directory.** `calltype` comes from `anal.cc`,
 > which radare2 sets from the binary only once it can load its
 > calling-convention SDBs, and `stackframe` is derived from it by frame
-> analysis. Run `r2xsql-full` from radare2's install `bin/` (Recipe A in
-> `deployment.md`) or these two disagree with what a spawned radare2 reports.
+> analysis. The plugin runs inside radare2 and inherits whatever the host
+> resolves, so if these two look wrong, check the host's own data directory
+> (`e dir.prefix` / `e dir.types`).
 
 ## `calling_conventions` (read-only)
 A **static** per-`(arch,bits)` calling-convention reference table. Source:
@@ -210,21 +211,19 @@ table.
 Source: per-func `afvj @ <func_addr>` (flattens the `reg` / `sp` / `bp` groups
 into one row per variable). An unfiltered scan enumerates every function
 (`aflj`) then pulls each one's vars. Keyed on `(func_addr, name)`.
-**`r2xsql-full` fills the read side from radare2's in-process analysis state
+**r2xsql fills the read side from radare2's in-process analysis state
 (`fcn->vars`) instead of running those commands** — identical rows, 50-780x
-faster on a full scan depending on scale; the pipe-only `r2xsql` uses the
-commands. The write side (rename/retype) is now ALSO C-API-backed on
-`r2xsql-full`: it calls radare2's rename/retype functions directly instead of
-issuing `afvn`/`afvt`, measured substantially faster on a bulk rename/retype
-workload with exact parity; the pipe-only flavor still issues those two
-commands.
+faster on a full scan depending on scale. The write side (rename/retype) is
+C-API-backed too: it calls radare2's rename/retype functions directly instead
+of issuing `afvn`/`afvt`, measured substantially faster on a bulk
+rename/retype workload with exact parity.
 
 - `UPDATE locals SET name = '…' WHERE func_addr = … AND name = '…'` —
-  **rename** a local/arg (pipe-only: `afvn <new> <old> @ <func_addr>`;
-  `r2xsql-full`: direct C-API call). Name must be `[A-Za-z0-9._$]`.
+  **rename** a local/arg (direct C-API call; equivalent to
+  `afvn <new> <old> @ <func_addr>`). Name must be `[A-Za-z0-9._$]`.
 - `UPDATE locals SET type = '…' WHERE func_addr = … AND name = '…'` —
-  **retype** a local/arg (pipe-only: `afvt <name> <type> @ <func_addr>`;
-  `r2xsql-full`: direct C-API call). The type is passed verbatim (r2 accepts a
+  **retype** a local/arg (direct C-API call; equivalent to
+  `afvt <name> <type> @ <func_addr>`). The type is passed verbatim (r2 accepts a
   bare `int` / `char *`; it stores literal quotes if wrapped), so it is
   validated to `[A-Za-z0-9_.* []]` (no r2 metacharacters).
 
@@ -244,10 +243,9 @@ immediately, so the next read returns the new name/type.
 ## `blocks` (read-only)
 Source: per-func `afbj @ <addr>`. `WHERE func_addr = X` is pushed down to a
 single `afbj @ X`; an unfiltered scan enumerates every function (`aflj`).
-**`r2xsql-full` fills this table from radare2's in-process analysis state
+**r2xsql fills this table from radare2's in-process analysis state
 (`fcn->bbs`) instead of running those commands** — identical rows, roughly an
-order of magnitude faster on a large binary; the pipe-only `r2xsql` uses the
-commands. `cfg_edges`/`switch_tables`/`dominators`/`post_dominators`/`loops`
+order of magnitude faster on a large binary. `cfg_edges`/`switch_tables`/`dominators`/`post_dominators`/`loops`
 below share this same producer.
 
 | `addr`, `size`, `func_addr` | INT64 |
@@ -279,9 +277,8 @@ Source: per-func `afbj @ <addr>` block successors
 (`jump`/`fail`/switch cases/`def_val` default).
 `WHERE func_addr = X` is pushed down to a single `afbj @ X`; an unfiltered scan
 enumerates every function (`aflj`). Canonical cross-tool CFG-edge schema.
-**`r2xsql-full` derives this from the same in-process `fcn->bbs` walk as
-`blocks`** instead of parsing `afbj`'s JSON; the pipe-only `r2xsql` uses the
-commands.
+**r2xsql derives this from the same in-process `fcn->bbs` walk as
+`blocks`** instead of parsing `afbj`'s JSON.
 
 | `func_addr`, `from_addr`, `to_addr` | INT64 |
 | `edge_type` (`normal`/`true`/`false`) | TEXT |
@@ -292,7 +289,7 @@ Source: per-func `afbj @ <addr>` block `switch_op` (`addr`, `min_val`, `max_val`
 cross-tool schema; r2 supplies 6/7 — only `table_addr` (physical jump-table address)
 is NULL. Columns: `func_addr`, `instr_addr`, `table_addr` (NULL), `min_case`,
 `max_case`, `case_count`, `default_addr`.
-**`r2xsql-full` derives this from the same in-process `fcn->bbs` walk as
+**r2xsql derives this from the same in-process `fcn->bbs` walk as
 `blocks`**; `table_addr` stays NULL on both flavors — the C API has the jump
 table's own address (`RAnalSwitchOp::daddr`), but no radare2 command exposes
 it, so surfacing it only in-process would make the two flavors disagree on
@@ -310,10 +307,9 @@ Columns: `func_addr`, `frame_size`, `arg_size` (NULL), `local_size` (NULL),
 Canonical cross-tool CFG-graph tables (idasql/ghidrasql shapes). Each maps a
 function's `afbj @ <fa>` basic blocks onto opaque node ids and runs the generic
 `xsql::graph` module — pure r2xsql code, not a radare2 dominance API;
-`WHERE func_addr = X` pushes down to one `afbj @ X`. **`r2xsql-full` builds the
+`WHERE func_addr = X` pushes down to one `afbj @ X`. **r2xsql builds the
 same node graph from the in-process `fcn->bbs` walk `blocks` uses**, so the
-speedup comes from how the block list is read, not the algorithm; the
-pipe-only `r2xsql` uses `afbj @ X`.
+speedup comes from how the block list is read, not the algorithm.
 - `dominators`: `func_addr`, `node_addr`, `idom_addr` (NULL at entry), `depth`, `is_entry`.
 - `post_dominators`: `func_addr`, `node_addr`, `ipdom_addr` (NULL to exit), `depth`, `is_exit`.
 - `loops`: `func_addr`, `header_addr`, `latch_addr`, `start_addr`, `end_addr`, `depth`,
@@ -721,10 +717,9 @@ reports refs at the current seek, so it is empty on a fresh session).
 `WHERE to_addr = X` is pushed down to `axtj @ X`; `WHERE from_addr = X`
 is pushed down to `axfj @ X`; `WHERE from_func = X` is pushed down to
 `afxj @ X` (one function's references — `X` must be the function's START
-address, since that is what `from_func` holds). **`r2xsql-full` fills this table from radare2's
+address, since that is what `from_func` holds). **r2xsql fills this table from radare2's
 in-process analysis state instead of running those commands** — identical rows,
-roughly an order of magnitude faster on a large binary; the pipe-only `r2xsql`
-uses the commands.
+roughly an order of magnitude faster on a large binary.
 
 | `from_addr`, `to_addr` | INT64 |
 | `from_func` (owning function's ADDRESS; NULL outside any function — join to `funcs.addr`) | INT64 |
@@ -744,13 +739,13 @@ spelling matches these values.
 Source: `izj`. Columns: `addr`, `length`, `section`, `type`, `content`, `paddr`
 (the file offset — `addr` is the virtual address; use `paddr` to carve or patch
 the string on disk).
-**`r2xsql-full` reads `r_bin_get_strings` directly instead of running `izj`
+**r2xsql reads `r_bin_get_strings` directly instead of running `izj`
 and parsing the JSON** — identical rows (that command's own handler already
 calls the same function internally); no analysis pass needed on either flavor.
 
 ## `imports` (read-only)
 Source: `iij`. Columns: `addr`, `ordinal`, `bind`, `type`, `name`, `module`.
-**`r2xsql-full` reads `RBinImport` directly instead** — via the same
+**r2xsql reads `RBinImport` directly instead** — via the same
 `r_bin_name_tostring`/`r_bin_demangle`/`r_core_bin_impaddr` calls the command
 emitter itself makes, so `name`'s demangling and `addr`'s PLT resolution are
 unchanged; identical rows on both flavors.
@@ -759,13 +754,13 @@ unchanged; identical rows on both flavors.
 Sources: `iej` program entry points plus `iEj` exports, deduplicated by address.
 Columns: `addr`, `size`, `type`, `bind`, `name`. `name` is the ORIGINAL symbol
 name, never the demangled form, on either flavor.
-**`r2xsql-full` reads `RBinAddr`/`RBinSymbol` directly instead of running
+**r2xsql reads `RBinAddr`/`RBinSymbol` directly instead of running
 `iej`+`iEj`** and merges them the same way — identical rows.
 
 ## `sections` / `segments` (read-only)
 Source: `iSj` / `iSSj`. Columns: `start_addr`, `end_addr`, `vsize`, `paddr`,
 `size`, `name`, `perm`.
-**`r2xsql-full` reads `RBinSection` directly instead of running `iSj`/`iSSj`**
+**r2xsql reads `RBinSection` directly instead of running `iSj`/`iSSj`**
 — both commands already share ONE underlying vector on radare2's side
 (opposite filters over the same section list), so this is one port that
 covers both tables; identical rows, no analysis pass needed on either flavor.
@@ -780,17 +775,14 @@ the read-only binary `sections`/`segments`). Columns: `start_addr`,
 ## `flags` (writable)
 Source: `fj`, plus `fsj` and one scoped listing per flagspace. Columns: `addr`,
 `size`, `name`, `realname`, `space`.
-**`r2xsql-full` fills the read side from radare2's in-process flag database
+**r2xsql fills the read side from radare2's in-process flag database
 (`r_flag_foreach`) instead of running those commands** — identical rows,
 17-47x faster on a full scan depending on scale, and the per-flagspace
 enumeration loop below is eliminated entirely (no `fs` select/restore at
 all — `r_flag_foreach` is not scoped to the currently-selected flagspace the
-way the `fj` command is); the pipe-only `r2xsql` uses the commands. INSERT
-and DELETE are unchanged on both flavors. UPDATE (rename) is now ALSO
-C-API-backed on `r2xsql-full`: it calls radare2's rename function directly
-(no address needed for that call at all), measured substantially faster on a
-bulk-rename workload with exact parity; the pipe-only flavor still issues
-`fr`.
+way the `fj` command is). UPDATE (rename) is C-API-backed too: it calls
+radare2's rename function directly (no address needed for that call at all),
+measured substantially faster on a bulk-rename workload with exact parity.
 
 `space` is radare2's **real** flagspace — `imports`, `strings`, `functions`,
 `relocs`, `registers`, `sections`, `symbols`, `format`, `resources`, … — which
@@ -798,17 +790,17 @@ is what `fs` lists and what `GROUP BY space` will agree with. It is not derived
 from the flag's name: `sym.imp.CreateFileW` is in space `imports` (not `sym`),
 `str.hello` is in `strings` (not `str`), and `fcn.*` and `sub.*` are both
 `functions`. A flag radare2 puts in no space reports an empty string. Both
-producers read the identical underlying truth, so this holds on either flavor.
+producers read the identical underlying truth.
 
-The pipe-only flavor costs one extra command per non-empty flagspace (≈10 on
-a typical binary), because `fj` does not report a flag's space and radare2
-offers no single command that does; `r2xsql-full` reads it directly off each
-flag with no extra command at all.
+`fj` does not report a flag's space and radare2 offers no single command that
+does, so a command-path implementation would cost one extra command per
+non-empty flagspace (≈10 on a typical binary). r2xsql reads it directly off
+each flag instead, with no extra command at all.
 
 - `UPDATE flags SET name = '…' WHERE addr = …` — radare2's generic in-place
-  rename, regardless of which flagspace the flag lives in (pipe-only:
-  `fr <old> <new>`; `r2xsql-full`: the same rename called directly on the C
-  API, no command string). (Not `afn`: that command only renames a flag
+  rename, regardless of which flagspace the flag lives in (the C-API
+  equivalent of `fr <old> <new>`, called directly, with no command string).
+  (Not `afn`: that command only renames a flag
   already parked in the `functions` flagspace, and otherwise creates a
   second, duplicate flag instead of renaming — use the `funcs` table to also
   rename a function's own analysis-tracked name.)
@@ -819,17 +811,17 @@ flag with no extra command at all.
 Source: `CCj`. Columns: `addr`, `type`, `text`.
 
 - `INSERT INTO comments (addr, text) VALUES (…, '…')` — **add** a comment at
-  an address (pipe-only: `CCu base64:<b64> @ <addr>`; `r2xsql-full`: the
-  comment-write function called directly on the C API).
+  an address (the comment-write function called directly on the C API; the
+  command equivalent is `CCu base64:<b64> @ <addr>`).
 - `UPDATE comments SET text = '…' WHERE addr = …` — same as INSERT above. An
   update whose new text is already a substring of the EXISTING comment is a
-  silent no-op, on both flavors alike — this is radare2's own long-standing
-  write behavior, not something either flavor invented.
+  silent no-op — this is radare2's own long-standing write behavior, not
+  something r2xsql invented.
 - `DELETE FROM comments WHERE addr = …` ⇒ `CC- @ <addr>`.
 
-The pipe-only flavor's comment text is passed as `base64:` so spaces,
+On the command path a comment's text is passed as `base64:` so spaces,
 quotes, and `@` are stored verbatim and can't inject extra r2 commands;
-`r2xsql-full`'s direct C-API call needs no such encoding for the same
+r2xsql's direct C-API call needs no such encoding for the same
 reason.
 
 ## `bookmarks` (writable)
@@ -866,8 +858,9 @@ Source: `tk*` (sdb dump of NAME=KIND) enriched with `tj` (atomics) and
   of which a bare name+kind can supply without inventing one).
 - A full typed declaration (members, an underlying primitive, a signature,
   …) doesn't fit the row columns either way — use the
-  `r2xsql_type_define('<one-line C decl>')` function (see "Persistence &
-  type functions"), which the empty-shell INSERT above is itself built on.
+  radare2's own `td <one-line C decl>` command, which the empty-shell INSERT
+  above is itself built on. It reaches the session over the same transport as
+  the SQL, so there is no SQL wrapper for it.
 
 | col | type | notes |
 |---|---|---|
@@ -881,7 +874,7 @@ Source: `tk*` (sdb dump of NAME=KIND) enriched with `tj` (atomics) and
 every query (this table has no cross-query cache since the type database is
 mutable) — it agrees for a given name across two queries only while the type
 set stays unchanged in between; an intervening INSERT/DELETE/
-`r2xsql_type_define` shifts the alphabetical position of every name sorting
+`td` shifts the alphabetical position of every name sorting
 after the change. Never derived from an address, and identical on both
 backends (they share the same command-based producer).
 
@@ -934,7 +927,7 @@ current value; the `value` column is writable.
 - `SELECT key, value, type, scope FROM runtime_settings` — discover the surface.
 - `SELECT value FROM runtime_settings WHERE key='query_timeout_ms'` — a single value.
 - Change a value with `UPDATE runtime_settings SET value=... WHERE key=...`;
-  `timeout_push`/`timeout_pop` are PRAGMAs (see cli-reference).
+  `timeout_push`/`timeout_pop` are PRAGMAs.
 - 8 keys: `query_timeout_ms`, `queue_admission_timeout_ms`, `max_queue`,
   `hints_enabled`, `timeout_stack_depth`, `max_timeout_stack_depth`, and the two
   action verbs `timeout_push` / `timeout_pop`.
@@ -944,14 +937,20 @@ Scalar SQL functions (call via `SELECT fn(...)`):
 
 | function | effect | radare2 |
 |---|---|---|
-| `r2xsql_project_save('name')` | save the session as a project (mid-session, no exit) | `Ps name` |
-| `r2xsql_project_open('name')` | load a project into the session | `P name` |
-| `r2xsql_type_define('<C decl>')` | define a type from a one-line C declaration | `"td <decl>"` |
+| `regexp(pattern, text)` | ECMAScript-regex match; backs `text REGEXP 'pat'` | (none) |
+
+`regexp` is the only one, and it exists only because SQLite reserves the
+`REGEXP` operator syntax while shipping no implementation. Everything else
+that used to live here — project save/open, type definition — is a radare2
+command (`Ps`, `P`, `td`) reached over the same transport as the SQL.
 
 Persistence model: edits (renames, comments, flags, types) live in the r2 core
-and are written to disk only when a project is saved — via these functions
-mid-session, or by the CLI `-w --project NAME` save-on-exit. Reopen with the
-same project (CLI `--project NAME` or `r2xsql_project_open`) to resume.
+and are written to disk only when a project is saved. Saving and opening are
+**radare2 commands, not SQL** — `Ps <name>` and `P <name>` — reachable over the
+same transport as the SQL itself; open with `-w` and reopen a saved project
+with `-p <name>`. `SELECT name FROM projects` reads the list back, and is how
+you confirm a save landed: over r2's HTTP server a refused `Ps` returns an
+empty body with HTTP 200, indistinguishable from success.
 
 ## Views (read-only)
 
@@ -1043,8 +1042,7 @@ of which plan SQLite picks. `string_refs.string_value` is `strings.content`.
   `io_maps` (INSERT/DELETE), `types`
   (INSERT of an empty struct/union/enum shell, DELETE), `projects` (DELETE),
   `runtime_settings` (UPDATE `value`). Plus the
-  `r2xsql_project_save/open` and
-  `r2xsql_type_define` functions.
+  radare2 commands `Ps`/`P` (projects) and `td` (a full type declaration).
 - **Pushdown filters (direct-source `filter_eq`/`filter_eq_text`): 18** — `blocks.func_addr`, `bytes.addr`, `cfg_edges.func_addr`, `function_frames.func_addr`,
   `dominators.func_addr`, `post_dominators.func_addr`, `loops.func_addr`,
   `switch_tables.func_addr`,
@@ -1067,4 +1065,5 @@ of which plan SQLite picks. `string_refs.string_value` is `strings.content`.
   together): 1** — `instructions.start_addr` + `instructions.count`, the
   arbitrary-address disassembly range read (`pdj N @ X`).
 - **Raw passthrough** — `Session::raw_cmd`; CLI `.`-prefixed `-q`/REPL;
-  HTTP `POST /query` body `.r2cmd <command>`.
+  r2's own `POST /cmd/` with the command as the body — the same endpoint the
+  SQL goes to, so no SQL escape hatch is needed.

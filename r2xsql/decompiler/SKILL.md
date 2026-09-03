@@ -73,7 +73,7 @@ LIMIT 50;
 - Different decompilers produce wildly different output — never write
   brittle string-matching against pseudocode for downstream parsing.
 - Decompilation is **slow**; the table doesn't cache across sessions.
-  Reopen with `--project NAME` to keep the analysis warm, but the
+  Reopen with `-p NAME` to keep the analysis warm, but the
   pseudocode itself is re-rendered per query.
 - Some functions decompile to a comment like `// Not yet implemented`
   for thunks, leaf functions, or anything r2's analysis can't handle.

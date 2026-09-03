@@ -202,12 +202,12 @@ Prefer `to_addr = ...` and `from_addr = ...` predicates for interactive
 drilling; they use scoped radare2 commands instead of enumerating every
 function.
 
-`r2xsql-full` reads this table directly from radare2's in-process analysis
+r2xsql reads this table directly from radare2's in-process analysis
 state rather than running those commands — same rows, roughly an order of
 magnitude faster on a large binary, where an unfiltered scan would otherwise
-cost one command per function. The pipe-only `r2xsql` drives a separate
-radare2 process, so it enumerates `afxj` across every function once per query;
-there, cache a broad result into a temp table if you will reuse it:
+cost one command per function. Tables not yet on that path still enumerate
+`afxj` across every function once per query, so cache a broad result into a
+temp table if you will reuse it:
 
 ```sql
 CREATE TEMP TABLE callers_of_x AS
