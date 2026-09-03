@@ -15,25 +15,25 @@ session state. For read-only annotation lookups, use `data` or
 
 ## Required: write mode + project
 
-Mutations only land in r2's session memory. To **persist** them
-across reopens you need both:
-
-1. `-w` (or `--write`) when opening the session.
-2. `--project NAME` so r2xsql can call `Ps NAME` on shutdown.
+Mutations only land in r2's session memory. To **persist** them across
+reopens, save a project with radare2's own `Ps` before exiting, and reopen with
+`-p`. Both are r2 commands, not SQL -- lifecycle is radare2's job.
 
 ```bash
-r2xsql -w --project demo -s ./malware.exe -q "
-  UPDATE comments SET text = 'crypto init' WHERE addr = 0x401000;
-  UPDATE flags    SET name = 'aes_init'    WHERE addr = 0x401000;
-"
-# reopen — the comment + rename are still there
-r2xsql --project demo -s ./malware.exe -q "
-  SELECT text FROM comments WHERE addr = 0x401000;
-"
+# annotate, then save. -w opens writable; `sqlj` runs both statements.
+radare2 -w -A   -c '"sqlj UPDATE comments SET text = '"'"'crypto init'"'"' WHERE addr = 0x401000;
+       UPDATE flags SET name = '"'"'aes_init'"'"' WHERE addr = 0x401000"'   -c 'Ps demo' ./malware.exe
+
+# reopen the project -- the comment and rename are still there, no re-analysis
+radare2 -p demo -c '"sqlj SELECT text FROM comments WHERE addr = 0x401000"' ./malware.exe
 ```
 
-Without `--project`, mutations are still visible in the current
-session but vanish on exit.
+Without a `Ps`, mutations are visible in the current session but vanish on exit.
+
+> Over r2's HTTP server a failed `Ps` is **silent** -- an empty body with HTTP
+> 200, identical to success, with the error only on the server's stderr. It
+> fails whenever `http.sandbox` is true (the default). Set
+> `e http.sandbox=false`, and confirm with `SELECT name FROM projects`.
 
 ## Writable tables
 
@@ -45,8 +45,8 @@ session but vanish on exit.
 | `flags`     | `f <name> @ <addr>`        | `fr <old> <new>` (**rename**, any flagspace) | `f- @ <addr>`    |
 | `bookmarks` | `f <name> @ <addr>`        | `fr <old> <new>`                         | `f- @ <addr>`    |
 | `io_maps`   | `om $d <vaddr> <size> <paddr> <perm> [name]` | —                      | `om-<map_id>`    |
-| `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; use `r2xsql_type_define` for a full declaration) | — | `t- <name>` |
-| `projects`  | — (use `r2xsql_project_save`)| —                                       | `P- <name>`      |
+| `types`     | `td "<kind> <name> {};"` (empty struct/union/enum shell only; a full declaration is r2's own `td`) | — | `t- <name>` |
+| `projects`  | — (use r2's `Ps <name>`)   | —                                       | `P- <name>`      |
 
 - **Rename functions**: `UPDATE funcs SET name='…' WHERE addr=…` (issues `afn`).
   `flags` also renames (`UPDATE flags SET name='…' WHERE addr=…`), always via
@@ -74,19 +74,18 @@ session but vanish on exit.
   validation above. The pipe backend is unaffected: it always uses the plain command
   form.
 - `flags`' INSERT (`f`) and DELETE (`f-`) use the same structural dispatch (address-
-  scoped, like `funcs`/`comments`). Its rename does not issue `fr` at all on the
-  in-process (`r2xsql-full`) flavor — it calls radare2's rename function directly
-  (no address needed for that call either), measured substantially faster on a
-  bulk-rename workload with identical results. The pipe-only flavor still issues
-  `fr`, seeked to the flag's own address (a harmless anchor `fr` never consults).
+  scoped, like `funcs`/`comments`). Its rename does not issue `fr` at all — it
+  calls radare2's rename function directly (no address needed for that call
+  either), measured substantially faster on a bulk-rename workload with
+  identical results.
 - `bookmarks`' INSERT (`f`) and DELETE (`f-`) use the same structural dispatch
   (address-scoped) inside the pre-existing flagspace save/select/restore below.
   Its rename (`fr`) is addr-less in the same way `flags`' is, and routes through
   the dispatch the same way — seeked to the bookmark's own address, which `fr`
   never consults, needing no new primitive. The pipe backend is unaffected on all
   three writes.
-- `types`' DELETE (`t-`) and INSERT (`td`, including the general
-  `r2xsql_type_define('<C decl>')`) also use the structural dispatch, but
+- `types`' DELETE (`t-`) and INSERT (`td`) also use the structural dispatch,
+  but
   neither command has ANY address in its own grammar at all (a type
   definition isn't tied to any address) — unlike every table above, there is
   no row address to seek to, so both are seeked to a fixed anchor address (0)
@@ -96,20 +95,17 @@ session but vanish on exit.
   `SET type='…'`, keyed on `func_addr` + the current `name`. Locals
   are analysis-derived — no INSERT/DELETE. The type is passed verbatim (r2 takes
   a bare `int` / `char *`; do NOT quote it), validated to `[A-Za-z0-9_.* []]`.
-  The pipe-only flavor issues `afvn`/`afvt`; `r2xsql-full` calls radare2's
-  rename/retype functions directly instead — same results, measured
-  substantially faster on a bulk rename/retype workload. On the in-process
-  (libr) backend, whenever that direct call is unavailable, the command-path
-  fallback (`afvn`/`afvt`, address-scoped like `funcs`'s writes) also uses
-  the same structural command-dispatch path — never evaluating r2's own
+  r2xsql calls radare2's rename/retype functions directly rather than issuing
+  `afvn`/`afvt` — same results, measured substantially faster on a bulk
+  rename/retype workload. Whenever that direct call is unavailable, the
+  command-path fallback (`afvn`/`afvt`, address-scoped like `funcs`'s writes)
+  uses the same structural command-dispatch path — never evaluating r2's own
   command separators at all, as a second, independent layer beneath the
-  name/type validation above. The pipe backend is unaffected: it always uses
-  the plain command form.
-- **Comments** are passed as `base64:` so spaces, quotes, and `@` are stored
-  verbatim and can't inject extra r2 commands, on the pipe-only flavor.
-  `r2xsql-full` sets/updates a comment by calling radare2's own comment-write
-  function directly instead of building that command — no encoding needed for
-  that call — while reproducing one existing behavior byte-for-byte: an
+  name/type validation above.
+- **Comments**: r2xsql sets/updates a comment by calling radare2's own
+  comment-write function directly rather than building a command, so no
+  encoding is needed — while reproducing one existing behavior byte-for-byte:
+  an
   UPDATE whose new text is already contained inside the EXISTING comment is a
   silent no-op on both flavors (this is radare2's own long-standing
   dedup-on-write behavior, not something either flavor invented). On the
@@ -129,13 +125,21 @@ session but vanish on exit.
 - `bookmarks` writes are scoped to the `bookmarks` flagspace (saved/selected/
   restored around each write); `id` is synthetic and ignored.
 
-## Persistence functions
+## Persistence
+
+Saving and opening projects are **r2 commands**, not SQL. They used to be
+`r2xsql_project_save` / `r2xsql_project_open` scalar functions; those are gone,
+because `Ps` and `P` do the same thing and travel the same transport as the SQL.
+
+```
+Ps triage1        r2 command: save the session as a project
+P  triage1        r2 command: load a project mid-session
+```
+
+Reading the project list is still SQL, and is how you verify a save landed:
 
 ```sql
-SELECT r2xsql_project_save('triage1');   -- Ps: save the session as a project
-SELECT name FROM projects;              -- Plj: list saved projects
-SELECT r2xsql_project_open('triage1');   -- P:  load a project mid-session
-SELECT r2xsql_type_define('struct hdr { int magic; int size; }');  -- td
+SELECT name FROM projects;    -- Plj
 ```
 
 ## Common operations

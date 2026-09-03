@@ -33,7 +33,8 @@ A typical triage pass:
 4. **Pivot** — `xrefs` from interesting imports/strings to callers,
    then to those callers' callers.
 5. **Annotate** — use the `annotations` skill to leave comments and
-   flags marking what you found; persist with `-w --project NAME`.
+   flags marking what you found; persist by opening with `-w` and saving the
+   session with r2's `Ps <name>` before you exit.
 
 ## Recipes
 

@@ -31,7 +31,7 @@ maintained there — this one is contributed alongside them in the same flat
 
 `connect/references/` carries the deeper material: `schema-catalog.md` (the
 canonical table/column reference — **the source of truth for the SQL surface**),
-`cli-reference.md`, `server-guide.md`, and `deployment.md`.
+`server-guide.md` and `deployment.md`.
 
 ## Install
 
@@ -50,17 +50,21 @@ live-update, so re-run `install` after editing a skill.
 
 Targets come from `SKILLDIRS=` in `../config.mk` (default `~/.agents/skills`).
 
-## Two flavors, one skill set
+## One artifact
 
-Everything here applies to both r2xsql binaries — they expose the identical SQL
-surface:
+r2xsql is a radare2 **core plugin**, `core_r2xsql`, and nothing else. There is
+no CLI and no server of its own: it registers the `sql` and `sqlj` commands
+inside radare2, so the console, r2pipe, r2's HTTP server (`=h`) and MCP all
+carry it without extra code.
 
-- **`r2xsql`** (pipe) — portable, spawns `radare2` over r2pipe, ABI-decoupled.
-- **`r2xsql-full`** (libr) — embeds radare2 in-process. Faster, and ships the
-  in-r2 `core_r2xsql` plugin, but ABI-locked to the radare2 build it was
-  compiled against.
+It is ABI-locked to the radare2 build it was compiled against.
 
-Where a skill's advice depends on the flavor, it says so.
+Two rules that apply to every skill here, because both fail **silently**:
+
+- **Wrap SQL commands in double quotes** — `"sqlj SELECT … WHERE size > 100"`.
+  r2's parser claims `>` and `|` first; unwrapped, the query returns nothing.
+- **Analysis is not automatic** — pass `-A` (or run `aaa`), or every `funcs`
+  query returns zero rows.
 
 ## Maintaining this
 

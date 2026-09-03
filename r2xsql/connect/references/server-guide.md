@@ -1,54 +1,102 @@
-# r2xsql server guide
+# Driving r2xsql over radare2's HTTP server
 
-> Both flavors serve identically: the portable **`r2xsql`** (pipe-only, default)
-> and **`r2xsql-full`** (in-process libr) expose the same HTTP/MCP endpoints and
-> envelope. Examples below use `r2xsql`; substitute `r2xsql-full` for the full
-> flavor. The in-r2 `sql.http` / `sql.mcp` commands are the plugin (full only).
+r2xsql has **no server of its own**. It is a radare2 core plugin registering the
+`sql` and `sqlj` commands, and radare2's own HTTP server (`=h`) carries them —
+along with r2pipe, the console and MCP, all of which reach the same command
+dispatch.
 
-r2xsql ships with **two** server transports, both built into the standard
-binary by default:
+That is the point of the design: there is one port, radare2's, and one endpoint,
+`/cmd/`.
 
-| Transport | CLI flag         | In-r2 command       | Default port range |
-|-----------|------------------|---------------------|--------------------|
-| HTTP REST | `--http [port]`  | `sql.http [port]`   | 8100-8999 (random) |
-| MCP/SSE   | `--mcp [port]`   | `sql.mcp  [port]`   | 9000-9999 (random) |
+## Start
 
-Both are gated on `R2XSQL_WITH_MCP=ON` (MCP only) and on the HTTP server
-being enabled (HTTP) — both defaults are **ON**. Pass `-DR2XSQL_WITH_MCP=OFF`
-to drop MCP support entirely if you don't need it.
+```bash
+# headless — blocks, serving; nobody is attached
+radare2 -e http.sandbox=false -c 'aaa; =h 9090' <binary>
 
-## HTTP REST server
-
-### Start
-
-```
-r2xsql -s <binary> --http 8080
-r2xsql -s <binary> --http --bind 0.0.0.0 --token <tok>
+# shared session — from inside an interactive r2 or iaito's console
+e http.sandbox=false
+=h& 9090
 ```
 
-`--http` without a port picks a random port in 8100-8999. `--bind`
-defaults to `127.0.0.1` (localhost only). `--token`, when set,
-requires `Authorization: Bearer <token>` (or `X-XSQL-Token: <token>`)
-on every endpoint except `GET /` and `GET /help`.
+`e http.sandbox=false` is required for project saves to work at all; see
+"Sandbox" below for what it does and does not protect.
 
-### Endpoints
+**Pick the port yourself and make sure it is free.** Under `=h&` a bind failure
+retries forever rather than erroring out.
 
-- `GET  /`         — banner / welcome
-- `GET  /help`     — embedded help text
-- `POST /query`    — body is raw SQL, response is JSON envelope.
-                     A body of `.r2cmd <command>` runs a raw r2 command
-                     instead and returns `{"success", "output"}`.
-                     The body is the SQL text itself — NOT a JSON object: send
-                     `-d "SELECT …"`, never `-d '{"sql":"…"}'` (a JSON wrapper is
-                     parsed as SQL and fails with `unrecognized token "{"`).
-- `GET  /status`   — health check (`{success, status, tool, mode, …}`)
-- `POST /shutdown` — graceful termination (use this instead of
-                     killing the process)
+### Readiness
 
-### Response envelope
+radare2 prints, on **stderr**, after the socket is bound and after `aaa`
+finishes:
 
-The query response is the canonical run_script envelope. A single statement is
-an array of one; a semicolon-separated script yields one entry per statement:
+```
+Starting http server...
+open http://localhost:9090/
+r2 -C http://localhost:9090/cmd/
+```
+
+Wait for `open http://` rather than sleeping. It is not gated by
+`http.verbose`, and it is *not* on stdout.
+
+A bind failure prints `ERROR: Cannot listen on http.port` and **the process
+does not exit** — treat that line as fatal yourself. Under `=h&` the banner
+arrives asynchronously *after* the command returns, so command-return is not
+readiness.
+
+## The endpoint
+
+`POST /cmd/` — the body is an r2 command, verbatim.
+
+**Use POST, not `GET /cmd/<…>`.** The POST body is taken as-is and is not
+URL-decoded, whereas the GET form is decoded and its request line is truncated
+at roughly 1500 bytes.
+
+```bash
+# SQL, JSON out
+curl -X POST http://127.0.0.1:9090/cmd/ -d '"sqlj SELECT name, size FROM funcs ORDER BY size DESC LIMIT 5"'
+
+# SQL, radare2 table out
+curl -X POST http://127.0.0.1:9090/cmd/ -d '"sql SELECT name FROM funcs LIMIT 5"'
+
+# SQL, shaped by r2's table query (the query is a SUFFIX, before the SQL)
+curl -X POST http://127.0.0.1:9090/cmd/ -d '"sql,:csv SELECT name, size FROM funcs LIMIT 5"'
+
+# a raw r2 command — no SQL escape hatch needed, it is the same endpoint
+curl -X POST http://127.0.0.1:9090/cmd/ -d '?V'
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'afn parse_header @ 0x401000'
+```
+
+### The command MUST be double-quoted
+
+Unwrapped queries fail **silently**: HTTP 200, empty body, no error anywhere a
+client can see. radare2's parser claims `>` and `|` before the plugin runs —
+`>` short-circuits the command to an empty result unless it starts with `"`, and
+`|` pipes it to the shell under the same exemption.
+
+```bash
+# WRONG: empty body, and a file named `100` appears
+curl -X POST .../cmd/ -d 'sqlj SELECT name FROM funcs WHERE size > 100'
+
+# RIGHT
+curl -X POST .../cmd/ -d '"sqlj SELECT name FROM funcs WHERE size > 100"'
+```
+
+The `'…'` single-quote form does **not** substitute: it works at the console but
+still returns an empty body here. The closing `"` must be the last character.
+
+## Response
+
+`Content-Type: text/plain`. The body is the command's console output verbatim —
+for `sqlj`, that is the JSON envelope.
+
+**Always HTTP 200**, even for an invalid command. The status code carries no
+information; parse the body.
+
+### The `sqlj` envelope
+
+A single statement is an array of one; a semicolon-separated script yields one
+entry per statement:
 
 ```json
 {
@@ -59,10 +107,14 @@ an array of one; a semicolon-separated script yields one entry per statement:
       "statement_index": 0,
       "success": true,
       "columns": ["addr", "name", "size"],
-      "rows":    [["0x401000", "main", "42"], …],
-      "row_count": 1
+      "rows":    [["0x401000", "main", "42"]],
+      "row_count": 1,
+      "elapsed_ms": 0,
+      "error": null
     }
-  ]
+  ],
+  "row_count_total": 1,
+  "first_error_index": null
 }
 ```
 
@@ -75,107 +127,126 @@ is `false`:
                  "error": "near \"FRO\": syntax error" } ] }
 ```
 
-**Output format.** JSON by default. Pass `?format=text|csv|tsv` on `/query` for
-terminal/pipe-friendly output (`text` = ASCII table, `csv` = RFC-4180,
-`tsv` = tab-separated); agents should consume the default JSON. Example:
-`curl -X POST "http://127.0.0.1:<port>/query?format=csv" -d "SELECT name,size FROM funcs LIMIT 5"`.
+SQL NULL comes back as JSON `null`, distinct from `""`.
 
-### Example
-
-```
-curl -X POST http://127.0.0.1:8080/query \
-  --data 'SELECT name, size FROM funcs ORDER BY size DESC LIMIT 5'
-
-# raw r2 command over HTTP
-curl -X POST http://127.0.0.1:8080/query --data '.r2cmd ?V'
-```
-
-### Inside r2 (after `L core_r2xsql.dll`)
+**`sql,:json` is not a substitute.** `sql` renders through radare2's own table
+API, whose JSON serializer emits only numbers and strings — there is no `null`
+— and drops any cell whose text is empty:
 
 ```
-[0x00000000]> sql.http 8080   # start (omit port for random 8100-8999)
-[0x00000000]> sql.http?       # status
-[0x00000000]> sql.http-       # stop
+"sql,:json SELECT NULL AS a, '' AS b, 'x' AS d"   ->  [{"d":"x"}]
+"sqlj      SELECT NULL AS a, '' AS b, 'x' AS d"   ->  rows: [[null,"","x"]]
 ```
 
-The in-r2 HTTP server runs against the host `RCore *`; its `/query`
-worker locks the plugin session mutex, so HTTP requests serialize
-against interactive `sql.<query>` and `sql.mcp` traffic. The plugin
-stops it in `fini`.
+`a` and `b` do not arrive as null or empty — they vanish, indistinguishable
+from a column that was never selected. Nor can a table carry per-statement
+errors, multi-statement results, or timings. Use `sqlj` in code.
 
-## MCP server
+## Lifecycle
 
-The MCP transport uses Server-Sent Events for streaming + a JSON-RPC
-POST endpoint, matching the canonical MCP wire shape.
+Projects and shutdown are radare2 commands, not SQL:
 
-### Start
-
-```
-r2xsql -s <binary> --mcp 9876
-r2xsql -s <binary> --mcp                 # random port in 9000-9999
-r2xsql -s <binary> --mcp --bind 0.0.0.0  # listen everywhere
+```bash
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'Ps triage1'   # save
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'q!!'          # stop the server and exit
 ```
 
-> **Security:** the MCP transport has **no authentication** — `--token`
-> applies to the HTTP server only (the MCP `start()` takes no token and the MCP
-> server does no auth), so MCP ignores it. Over `tools/call` the `r2xsql_query`
-> tool runs **arbitrary SQL** against the session — including the writable
-> `comments`/`flags` tables and the `r2xsql_project_*` / type-define functions.
-> (Raw `.r2cmd` passthrough is an HTTP-`/query` convenience, not exposed over
-> MCP — the MCP tool parses its argument as SQL.) Keep it bound to localhost
-> (the `127.0.0.1` default) and **avoid `--bind 0.0.0.0`** on untrusted networks.
+### Stopping cleanly
 
-Inside r2 (after `L core_r2xsql.dll`):
+There are two ways to stop, and they differ in what survives:
 
-```
-[0x00000000]> sql.mcp 9876
-[0x00000000]> sql.mcp?       # status
-[0x00000000]> sql.mcp-       # stop
+```bash
+curl "http://127.0.0.1:9090/cmd/=h--"                    # stop serving, keep r2
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'q!!'         # stop serving, exit r2
 ```
 
-### Endpoints
+`=h--` unwinds the accept loop and **hands control back to radare2**, so any
+commands chained after `=h` run at that point. That makes a self-finishing
+headless session possible:
 
-- `GET  /sse`      — SSE stream that emits an `endpoint` event whose
-                     `data:` field is the per-session POST URL
-- `POST /messages` — JSON-RPC requests (`initialize`, `tools/list`,
-                     `tools/call`, …)
-
-### Tool
-
-A single tool is registered:
-
-| Field | Value |
-|-------|-------|
-| Name        | `r2xsql_query` |
-| Input       | `{ "query": "<SQL string>" }` (string, required) |
-| Result      | `content: [{ type: "text", text: "<JSON envelope>" }]` |
-| isError     | `true` only for transport-level failures (e.g. the query callback is unset). A **SQL** failure is reported in-band — the envelope below with `isError` left `false`. |
-
-The JSON envelope inside `text` is byte-identical to the HTTP
-`/query` response above. A failed SQL query returns this envelope (with
-`isError` still `false`); inspect `success` to detect SQL errors:
-
-```json
-{ "success": false, "error": "<message>" }
+```bash
+radare2 -e http.sandbox=false -c 'aaa; =h 9090' -c 'Ps myproject' -c 'Pl' <file>
 ```
 
-### Connect
+**`=h--` only works as a GET.** It is matched against the request *path*, so
+sent as a POST body it falls through to normal command dispatch, logs
+`ERROR: No webserver running` to the server's own stderr, and keeps serving —
+from the client it is an empty HTTP 200 and nothing appears to happen. This is
+the one place where GET is required; everything else should be POST.
 
-Any MCP client works — point it at `http://127.0.0.1:9876/sse`. With
-`mcp-cli` / Claude Desktop:
+Three traps:
+
+- **`q!` does not stop the server.** It keeps serving. Use `q!!` or `=h--`.
+- **A failed `Ps` is invisible.** Under the default `http.sandbox=true` the
+  write is refused, but the error goes to the *server's* stderr and the response
+  is an empty body with HTTP 200 — identical to success. Confirm with
+  `"sql SELECT * FROM projects"` or `Pl`.
+
+Resume a saved project instead of re-analyzing:
+
+```bash
+radare2 -e http.sandbox=false -p triage1 -c '=h 9090' <binary>
+```
+
+## Sandbox
+
+`http.sandbox` defaults to **true** and does exactly one thing: it turns
+`cfg.sandbox` on for the duration of each `/cmd` execution. Its real effect is
+that all file writes are refused — which is why `Ps` fails under it.
+
+Leaving it on buys less than it appears to:
+
+- at radare2's default `cfg.sandbox.grain=all`, most "disabled in sandbox mode"
+  guards never fire at all;
+- any command starting with `!` or `.`, or containing `|` anywhere, disables the
+  sandbox for that command outright — so a body of `!id` runs a shell command
+  regardless.
+
+**Treat the server as unauthenticated local IPC, because that is what it is.**
+Bind to `127.0.0.1`, never expose it, and never feed it untrusted input.
+
+## Concurrency
+
+Foreground `=h` is safe: the accept loop *is* the main thread, so commands are
+strictly serialized and nothing else is touching the core.
+
+`=h&` spawns a real thread sharing the same `RCore`, and the request handler
+swaps `core->addr` / `core->block` / `core->config` per request with no lock —
+radare2's own source marks the spot `TODO: handle mutex lock/unlock here`.
+
+Be precise about what that does and does not mean:
+
+- **Two SQL commands cannot collide.** r2's HTTP thread calls the plugin's
+  command handler directly, so a `sql`/`sqlj` from the server and one from the
+  console take the same plugin mutex, then the session lock, then the backend
+  lock. They serialize.
+- **A SQL command and a non-SQL one can.** If someone runs `aaa` while a
+  `SELECT * FROM funcs` is mid-scan, radare2 rewrites its analysis under that
+  walk and takes none of those locks. Same for anything seek-dependent
+  (`bytes`, ranged `instructions`, `pseudocode`), since the HTTP loop is
+  rewriting the current address underneath it.
+
+So: **take turns.** Not because SQL is unsafe against SQL, but because
+everything else is.
+
+## What is shared, and what is not
+
+`e` settings are **not** shared. radare2 runs each HTTP request against a clone
+of its config, so a setting made on one side is invisible to the other, in both
+directions:
 
 ```
-mcp-cli connect http://127.0.0.1:9876/sse
-mcp> tools/list
-mcp> tools/call r2xsql_query {"query":"SELECT * FROM binary"}
+console: e asm.arch=arm    -> console sees arm,  HTTP still sees x86
+HTTP:    e asm.arch=mips   -> HTTP sees mips,    console still sees arm
 ```
 
-### Plugin background mode
+Analysis state — functions, names, comments, flags — **is** shared, which is
+the whole point. "One session" means one *analysis*, not one *configuration*.
 
-When started from inside r2 (`sql.mcp`), the SSE worker thread calls
-the query callback directly under the plugin's session mutex. This
-serializes MCP queries against any interactive `sql.<query>` from
-r2's command prompt — no separate drainer thread required. The plugin
-stops the server in its `fini` hook so `Lu core_r2xsql` unloads
-cleanly.
+Two more things are decided once, at the moment the plugin first runs a query:
 
+- **the decompiler.** `pseudocode` exists only if `pdg`/`pdd`/`pdc` answered
+  then. Load r2ghidra *before* your first `sql`, or the table never appears.
+- **the open file.** The plugin binds to the core, not to the file. If someone
+  runs `o <other-file>` mid-session, the session keeps reading the core it
+  bound to; it is not rebuilt.

@@ -246,8 +246,8 @@ not loaded from an external file).
 ## Caveats
 
 - `funcs.addr` is the function entry; if r2 hasn't analyzed the binary
-  yet, the table is empty. Run with the default `aaa` analysis (omit
-  `--no-analyze`) or open a saved project (`--project NAME`).
+  yet, the table is empty. radare2 does NOT analyze by default: pass `-A`
+  (or run `aaa`), or open a saved project with `-p NAME`.
 - Some r2 builds report `funcs.size = 0` for thunks and externs; filter
   with `size > 0` if you only want analyzed bodies.
 - `instructions.bytes` is the hex-encoded raw bytes (e.g. `4889e5`) —
