@@ -20,9 +20,12 @@ reopens, save a project with radare2's own `Ps` before exiting, and reopen with
 `-p`. Both are r2 commands, not SQL -- lifecycle is radare2's job.
 
 ```bash
-# annotate, then save. -w opens writable; `sqlj` runs both statements.
-radare2 -w -A   -c '"sqlj UPDATE comments SET text = '"'"'crypto init'"'"' WHERE addr = 0x401000;
-       UPDATE flags SET name = '"'"'aes_init'"'"' WHERE addr = 0x401000"'   -c 'Ps demo' ./malware.exe
+# annotate, then save. -w opens writable; one `sqlj` runs both statements.
+# INSERT, not UPDATE: an address with no comment yet has no row to update, so
+# `UPDATE comments` would match zero rows and annotate nothing, silently.
+# Keep it on ONE line -- a newline inside -c ends the command, so the closing
+# quote is never reached and the whole thing evaporates without an error.
+radare2 -w -A -c "\"sqlj INSERT INTO comments (addr, text) VALUES (0x401000, 'crypto init'); UPDATE flags SET name = 'aes_init' WHERE addr = 0x401000\"" -c 'Ps demo' ./malware.exe
 
 # reopen the project -- the comment and rename are still there, no re-analysis
 radare2 -p demo -c '"sqlj SELECT text FROM comments WHERE addr = 0x401000"' ./malware.exe
