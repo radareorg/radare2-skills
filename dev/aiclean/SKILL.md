@@ -18,6 +18,7 @@ Workflow:
 5. Create a small plan that favors behavior-preserving simplification, LOC reduction, and safer ownership/bounds handling.
    Sweep every new or changed construct (each struct, loop, string test, arithmetic expression, null check, and duplicated block) against the rules below rather than only the obvious spots — maintainer review nitpicks tend to hit the constructs a quick pass skips.
 6. Validate with focused tests or builds for the touched area when feasible.
+   Keep one case where the change must be inert (the other config value, the input outside the predicate) and check it is green on base and branch; two cases that fail for the same mutation are one case.
 
 Then improve the code quality following these rules:
 
