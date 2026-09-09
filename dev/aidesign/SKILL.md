@@ -39,7 +39,9 @@ Run before planning the implementation, when any of these holds:
 5. List at least two candidate mechanisms **at different layers**; if only one is
    viable, say so in one sentence naming the evidence that kills the others.
 6. Name the fixtures or inputs that discriminate between the candidates, before
-   measuring anything.
+   measuring anything. Count the corpus for the property the mechanism keys on: how
+   many files carry it, which layouts exist, the smallest file per layout; the one
+   file that showed the bug is not a fixture set.
 7. State the one fact each candidate rests on in a form that could be false, then try
    to break it and report what you tried - a rule inferring a category from raw bytes
    usually has a counterexample, one asking the layer that holds the fact usually not.
@@ -78,7 +80,7 @@ Run before planning the implementation, when any of these holds:
 # Output
 
 A table: mechanism | layer | files touched | ~LOC | fixtures covered | measured or
-estimated.
+estimated. Then a second: fixture | layout class | corpus count | size | existing tests.
 
 Then one recommendation line, the invariant it rests on and the best counterexample
 you could not make work, one line per rejected candidate naming what kills it, and
