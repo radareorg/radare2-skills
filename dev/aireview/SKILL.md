@@ -29,13 +29,14 @@ Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile
 - **API Contract Violations**: Breaking changes, incorrect return types
 - **Database/Data Errors**: Data integrity issues, race conditions
 - **Reimplementation**: New code duplicating an existing API, helper, or command — including plain libc calls where `r_util` has a richer equivalent (e.g. repeated `strrchr` scans vs `r_str_rchr` with a resume position); only flag when you can name the existing symbol
+- **Test adequacy**: a hunk no added test notices when reverted alone, a fix with no inverse case where it must stay inert, two cases on one code path; name the test file the case belongs in
 
 # Areas to Avoid
 - Style, readability, or variable naming preferences
 - Compiler/build/import errors (leave to deterministic tools)
 - Performance optimization (unless egregious)
 - High-level architecture
-- Test coverage
+- Coverage percentages
 - TODOs and placeholders
 - Low-value typos
 - Nitpicks or subjective suggestions
