@@ -32,7 +32,8 @@ Run before planning the implementation, when any of these holds:
    break") and treat each as hard until the caller relaxes it.
 3. Find where the needed fact already exists in the tree before adding code that
    recomputes it - if a decoder, loader or command already resolves the value, reuse
-   is a candidate mechanism in its own right.
+   is a candidate mechanism in its own right. First confirm which component emits the
+   wrong output: a symptom one tool prints can come from a fact missing in another.
 4. Ask why the existing code is shaped as it is before proposing to reshape it - an
    append-only buffer, an unreclaimed field, a value re-derived instead of looked up
    is usually protecting something. Name what, or say you could not find it.
@@ -57,6 +58,8 @@ Run before planning the implementation, when any of these holds:
 - "Demonstrably" means a fixture it gets wrong, never a prediction
 - Soundness outranks size: a cheap mechanism resting on a false invariant is a
   rewrite later, not a saving
+- Name the worst input shape each candidate meets (deep nesting, aliases, a huge
+  table) and time it there; a walk that is instant on the fixtures can be exponential
 - Rejecting a simpler candidate needs the frequency of the case it gets wrong, not
   just its existence
 - Prefer the layer that owns the data over the layer that consumes it, unless that
