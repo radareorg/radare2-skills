@@ -28,6 +28,11 @@ Macros like `R_NEW` or `R_NEW0` will never return NULL because those are compile
 - **Functional Correctness**: Does the code do what it's supposed to?
 - **API Contract Violations**: Breaking changes, incorrect return types
 - **Database/Data Errors**: Data integrity issues, race conditions
+- **Unchecked callers**: a changed function, field or shared helper whose other callers the diff does not account for, like a format parser that serves both input and output functions; name each caller that now behaves differently
+- **Unknown as a value**: a missing key or failed lookup treated as a real value such as `0`, and input classes the change skips: explicit zero, malformed, typedef or alias, exhausted resource
+- **Wrong expectations**: a test golden that records what the code prints rather than what is correct, or depends on the host, a temporary variable name or an absolute offset
+- **Input-shape cost**: work that grows super-linearly with a reachable input (nested types, aliased or repeated entries, a large table); back it with a timing on a synthetic worst case
+- **Sibling defects**: the defect the diff fixes, still present in the other functions it touches or elsewhere in the patched file
 - **Reimplementation**: New code duplicating an existing API, helper, or command — including plain libc calls where `r_util` has a richer equivalent (e.g. repeated `strrchr` scans vs `r_str_rchr` with a resume position); only flag when you can name the existing symbol
 - **Test adequacy**: a hunk no added test notices when reverted alone, a fix with no inverse case where it must stay inert, two cases on one code path; name the test file the case belongs in
 
