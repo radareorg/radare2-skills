@@ -20,7 +20,9 @@ Extra rules:
 
 - Do not use emojis
 - Describe what users will notice now works or no longer breaks.
-- Lead with a direct verb: `Fix`, `Add`, `Remove`, `Keep`, or `Stop`.
+- Lead with a direct verb such as `Fix`, `Add`, `Remove`, `Keep`, `Stop` or `Don't`.
+- Name the outcome in a few words, like `Don't leak relocs in corrupted bflts`, `Generate Windows types sdbs once` or `Fix shift overflow and ASR sign extension`.
+- Tag crash and memory-safety fixes `##crash`.
 - Avoid internal design terms and vague jargon.
 - Use one natural line under 70 characters.
 - This is a read-only operation, do not change or touch any file
