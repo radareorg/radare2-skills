@@ -25,6 +25,10 @@ Then improve the code quality following these rules:
 - Define and assign variables in the very same line if possible
   Prefer `bool a = true;` instead of `bool a; a = true;`
 - Use the correct type for variables and return types. f.ex: use bool instead of int when possible values are 0 or 1.
+- Return the comparison itself instead of `cond? 1: 0`, and mark a small file-local predicate `static inline`
+- Give new locals and test functions descriptive names; `on`, `lead` or `f4` make the reader recover the meaning from the body
+- Read a value the caller already holds (a loaded table, a precomputed set, block or function membership) instead of recomputing or re-parsing it
+- Open each binary once per set of arguments: fold commands on the same file and `ARGS` into one r2r case instead of one case per command
 - Use `R_STR_ISEMPTY (s)` / `R_STR_ISNOTEMPTY (s)` for empty-or-null string tests instead of `!s || !*s` / `s && *s`
 - Order struct fields widest-first (pointers and 64-bit types, then 32-bit, then `bool`/`char` last) so the compiler inserts no padding
 - Prefer a heap `char *` (`strdup`, `r_str_newf`) over a fixed `char buf[N]` when the string length is unbounded (type, symbol, or user-supplied names); fixed buffers silently truncate
