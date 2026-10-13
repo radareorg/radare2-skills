@@ -22,14 +22,14 @@ string/import name patterns, use `data`.
 
 | table   | source                | columns                                                                |
 |---------|-----------------------|------------------------------------------------------------------------|
-| `xrefs` | per-func `afxj @ <fn>`| `from_addr`, `to_addr`, `type`, `from_func`, `is_code`, `is_data`, `kind` |
+| `xrefs` | host's global in-process xref store | `from_addr`, `to_addr`, `type`, `from_func`, `is_code`, `is_data`, `kind` |
 
-Unfiltered scans walk `aflj` and issue `afxj @ <fn>` per function (the
-global `axj` only reports refs at the current seek, so it returns nothing
-on a fresh session). Point lookups push down: `WHERE to_addr = X` issues
-`axtj @ X`, `WHERE from_addr = X` issues `axfj @ X`, and
-`WHERE from_func = X` issues `afxj @ X` — one function's references, so `X`
-must be the function's **start** address.
+Unfiltered scans read `r_anal_refs_get` with `UT64_MAX`, including references
+whose source is outside every analyzed function. Each reference appears once,
+even with overlapping functions. `to_addr` and `from_addr` predicates select
+from that same store. `WHERE from_func = X` scopes outgoing references to a
+real function **start** address; its `from_func` value is the owning function's
+address, or NULL when the source is outside all functions.
 
 ## Start with the views
 
@@ -151,12 +151,11 @@ FROM xrefs x LEFT JOIN funcs f ON f.addr = x.from_func
 WHERE x.to_addr = 0x401000;
 
 -- everything a function calls (CALL edges out of it)
-SELECT DISTINCT x.to_addr, f.name AS callee
+SELECT DISTINCT x.to_addr, COALESCE(f.name, i.name) AS callee
 FROM xrefs x
 LEFT JOIN funcs f ON f.addr = x.to_addr
-WHERE x.from_addr IN (
-  SELECT addr FROM instructions WHERE func_addr = 0x401000
-)
+LEFT JOIN imports i ON i.addr = x.to_addr
+WHERE x.from_func = 0x401000
 AND x.type = 'CALL';
 
 -- callers of every CryptDecrypt-ish import
@@ -198,16 +197,10 @@ WHERE x.type = 'CALL';
 
 ## Performance / pushdown
 
-Prefer `to_addr = ...` and `from_addr = ...` predicates for interactive
-drilling; they use scoped radare2 commands instead of enumerating every
-function.
-
-r2xsql reads this table directly from radare2's in-process analysis
-state rather than running those commands — same rows, roughly an order of
-magnitude faster on a large binary, where an unfiltered scan would otherwise
-cost one command per function. Tables not yet on that path still enumerate
-`afxj` across every function once per query, so cache a broad result into a
-temp table if you will reuse it:
+Prefer `to_addr = ...`, `from_addr = ...` or `from_func = ...` predicates
+for interactive drilling. The plugin reads these directly from the host's
+analysis state; a scoped question need not enumerate all functions. Cache a
+broad result in a temp table if you will reuse it:
 
 ```sql
 CREATE TEMP TABLE callers_of_x AS
@@ -219,12 +212,7 @@ SELECT * FROM xrefs WHERE to_addr = 0x401000;
 - Indirect calls (`call qword [rip+...]`) resolve through r2's emul
   flag — sometimes the `to_addr` is the **slot**, not the resolved
   target. Re-run `aaaa` (or `aae` for emulation) to harvest more.
-- **radare2's two enumeration shapes do not agree, and the `xrefs` table exposes
-  both.** An unfiltered scan walks each analyzed function, so it cannot see a
-  reference whose source lies outside every function; a `WHERE to_addr = X`
-  lookup uses radare2's xref index, which can. So the same logical question can
-  return more rows when phrased so that it pushes down. Every such extra row has
-  `from_func IS NULL` — it belongs to no function by definition. Add
-  `AND from_func IS NOT NULL` when you need a phrasing-independent answer; the
-  three views above already do, which is part of why they are the better default.
-  Running `aaaa` analyzes more code and shrinks the gap.
+- References outside analyzed functions are included in both global scans and
+  address-filtered lookups. Their `from_func` is NULL. The three views above
+  exclude those rows because they describe relationships owned by functions;
+  query `xrefs` directly when an outside-function reference matters.

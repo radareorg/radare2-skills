@@ -72,6 +72,10 @@ LIMIT 50;
 
 - Different decompilers produce wildly different output — never write
   brittle string-matching against pseudocode for downstream parsing.
+- Identify the available backend when reporting pseudocode. Built-in `pdc`
+  is an approximate pseudodecompiler; inferred signatures and return values
+  can be misleading. Check uncertain semantics against `instructions`, such
+  as `mov al, 1`, which writes only AL rather than the complete RAX register.
 - Decompilation is **slow**; the table doesn't cache across sessions.
   Reopen with `-p NAME` to keep the analysis warm, but the
   pseudocode itself is re-rendered per query.

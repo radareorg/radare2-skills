@@ -1,7 +1,9 @@
 # r2xsql schema catalog
 
 Every column r2xsql emits, grouped by table. This document is the
-authoritative reference for the schema; consult it rather than the source.
+schema reference, checked against the live plugin. Command names below
+identify familiar radare2 equivalents; the plugin uses its host RCore and
+native APIs for most readers. There is no internal r2pipe backend.
 
 ## `binary` (read-only)
 Key/value/type rows — `(key, value, type)`, one row per fact,
@@ -9,7 +11,7 @@ Key/value/type rows — `(key, value, type)`, one row per fact,
 emitted first). Covers the raw bin-info fields from `iIj` (`arch`, `bits`,
 `bintype`, `os`, `baddr`, `endian`, `compiler`, `lang`, …) plus the
 identity / entry / count keys and the canonical family synonym keys below.
-Counts are JSON-array lengths, so they match the corresponding tables exactly.
+Counts come from the host's native collections and corresponding table readers.
 
 | col | type | notes |
 |---|---|---|
@@ -22,7 +24,7 @@ Added keys (alongside the raw `iIj` fields):
 | key | source | notes |
 |---|---|---|
 | `r2xsql_version` | `r2xsql::version()` | tool version (r2xsql's OWN build-time version) |
-| `radare2_version` | `?Vj` → `"version"` | the LIVE running radare2 ENGINE's own version — distinct from `r2xsql_version` above; on the r2pipe flavor the engine actually running is whatever `radare2` binary is on `PATH` at runtime, which can differ from what r2xsql was built against |
+| `radare2_version` | `?Vj` → `"version"` | the LIVE host radare2 engine's version, distinct from the plugin version; the plugin is ABI-locked to its build host |
 | `file` | `ij` → `core.file` | input file path |
 | `entry` | `iej[0].vaddr` | program entry (hex) |
 | `entry_name` | `fd @ entry` | flag/name at entry (e.g. `entry0`) |
@@ -101,10 +103,8 @@ one mitigation flag NOT gated this way.
 **No `rclass` column**, unlike some other tools' citations for this data.
 Verified against `bin_info()` (`libr/core/cbin.c`): `iIj` emits exactly one
 JSON key for `RBinInfo::rclass` (`"bintype"`, already `format` above) and
-never a separate key for `RBinInfo::type`. This table is command-path-only
-(no C-API producer, so both backends share identical JSON) and cannot
-manufacture a third, distinct value without the two backends structurally
-disagreeing — so a second `rclass` column is deliberately dropped.
+never a separate key for `RBinInfo::type`. The native reader preserves that
+schema: `format` already represents `rclass`, so there is no second column.
 
 **JSON keys differ from the boolean column names**: `iIj` reports `nx`/
 `pic`/`va` (bare), not `has_nx`/`has_pi`/`has_va` — verified against the
@@ -112,17 +112,15 @@ current radare2 source rather than assumed from a struct-field citation. The
 column names here follow the more self-documenting `RBinInfo` struct-field
 spelling; the JSON rename is a source-mapping detail invisible to SQL.
 
-No pushdown (one command pair, one row). No C-API producer — same call as
-`syscalls`/`calling_conventions`/`classes`/`registers`/`relocs`/`libs`: this
-is already ONE full-scan-equivalent command pair with no N-per-row shape to
-collapse. Unlike `binary` (which always emits identity/version rows), this
+No pushdown: the native reader produces one row from the loaded binary.
+Unlike `binary` (which always emits identity/version rows), this
 table reports an EMPTY result — not a row of blanks — when no bin is loaded.
 
 ## `funcs` (writable)
 Source: `aflj`.
 
 - `UPDATE funcs SET name = '…' WHERE addr = …` ⇒ `afn <name> @ <addr>` — **rename**
-  a function (fix the dummy `fcn.<addr>` names). Name must be `[A-Za-z0-9._$]`.
+  a function (fix the dummy `fcn.<addr>` names). The supplied name is validated.
 - `UPDATE funcs SET prototype = 'int f(int a)' WHERE addr = …` ⇒ `afs <sig> @ <addr>`
   — **set the function signature** (C prototype). Read from `aflj`'s `signature`
   field. A trailing `;` is stripped (r2 command separator); empty/NULL is rejected
@@ -345,62 +343,33 @@ empty iff `hex` is non-empty). Hidden inputs: `asm` (required), `addr`
 core->addr)` before assembling, so pc-relative encodings depend on it).
 `asm` is charset-validated (letters, digits, space, and
 `,.+-*/[]():%#_$`) before it is ever spliced into a command — real assembly
-text never needs `;`/`@`/`|`/backtick/quotes, so this alone makes the
-argument injection-safe; `Backend::cmd_noeval` is layered on top of that for
-defense-in-depth on the libr backend. `pa` prints NOTHING to stdout on a bad
+text never needs `;`/`@`/`|`/backtick/quotes, and is sent through
+literal address-scoped dispatch. The allowlist alone is not an injection
+boundary: `$()` and `#` are valid assembly characters. `pa` prints NOTHING to stdout on a bad
 mnemonic (radare2's own diagnostic is stderr-only) — a failed assemble reads
 back as an empty `hex` with a populated `error`, not as a SQL error.
-Command-path only, identical on both backends.
+Uses the host's literal command-dispatch path.
 
 ## `search_asm` (read-only)
-Assembles `asm` and searches for the resulting bytes via the plain
-(non-JSON) `/a <asm>` command (`cmd_search.inc.c`'s `case 'a':`/`case ' '`
-branch). **`/aj <asm>` is NOT this command's JSON form** — verified live,
-appending `j` right after `/a` misroutes to the unrelated `/at`
-(search-by-instruction-**type**) family instead (`/aj push rbp` returns
-`{"cmd":"/atj","arg":"push rbp","result":[]}`; `/aj mov rdi, rsi` matches by
-TYPE "mov", never assembling the literal text) — a real radare2
-command-dispatch collision. So this table parses the plain-text
-`<hex addr> <hitN_M> <hex bytes>` line format instead. Visible columns:
-`addr` (INT64), `matched_hex` (TEXT). Hidden inputs: `asm` (required,
-same charset validator as `assemble`), `max_results` (client-side cap).
-Sets `search.in=io.maps.x` for the duration of its own search and restores
-`io.maps` afterward, in ONE `Backend::cmd()` call (same atomic
-set/search/restore idiom `rop_gadgets` uses, and for the same reason —
-`search.in` is session-global config that leaks past the command that set
-it). Does NOT use `Backend::cmd_noeval`: the atomic three-command chain is
-structurally incompatible with cmd_noeval's single no-eval-command dispatch,
-so the charset allowlist alone is what makes this safe — the identical
-trade-off `rop_gadgets` already made for its own `pattern` input.
-Command-path only, identical on both backends (pair-tested: 11/11 hits on
-`search_asm WHERE asm = 'push rbp'` against the same fixture on both the
-pipe and libr backends).
+Assembles `asm` and searches executable maps with the literal `/a <asm>`
+handler. `/aj` is not its JSON form: it selects the unrelated `/at` family.
+The table parses plain-text `<hex addr> <hitname> <hex bytes>` lines.
+Visible columns: `addr` (INT64), `matched_hex` (TEXT). Hidden inputs: `asm`
+(required; same charset validator as `assemble`), `max_results` (result cap).
+The native search API saves the caller's actual `search.in`, selects `io.maps.x`,
+dispatches without command-expression evaluation, and restores the saved value.
+The charset allowlist alone is not an injection boundary: `$()` and `#` can
+appear in assembly text. There is no set/search/restore command chain.
 
 ## `demangle` (read-only)
-One row per query: demangles an ARBITRARY mangled name via r2's `iD`/`iDj`
-(`cmd_info.inc.c`'s `cmd_info_demangle` + `libr/bin/demangle.c`'s
-`r_bin_demangle`). This is distinct from `funcs.name`/`imports.name`, which
-already demangle automatically (gated on `bin.demangle`) for symbols radare2
-already knows from the loaded binary — `demangle` answers the SAME question
-for a string that isn't necessarily any table's row. Visible columns:
-`demangled` (TEXT, empty iff demangling failed — a real symbol is never
-legitimately empty), `error` (TEXT, empty iff `demangled` is non-empty).
-Hidden inputs: `mangled` (required), `lang` (optional — always advisory:
-`r_bin_demangle` auto-detects the actual demangler from the mangled text's
-own prefix regardless of what `lang` says, verified live that an
-unrecognized `lang` string does not abort the call, it just falls through to
-auto-detection). `mangled` is NOT charset-restricted the way `assemble`'s
-`asm` is: MSVC manglings use `?`/`@`/`$` throughout (`?foo@@YAHXZ`), which a
-disassembly-text allowlist would reject. Instead this table dispatches
-through `Backend::cmd_noeval`, seeked to a fixed anchor (0, same constant
-choice as `types`' `kTypeSystemAnchorAddr` — unobserved by `iD`'s handler
-either way), falling back to the `json_utils::r2_quote`-wrapped plain command
-on every backend that reports cmd_noeval unsupported — verified live that the
-injection risk is real: `iDj cxx foo; ?e INJECTED` spliced through a plain
-`Backend::cmd()` call DOES execute the injected `?e` as a second command,
-while `cmd_noeval` reaches `iD`'s argument parser with the whole string,
-`;` included, treated as opaque data. Command-path only, identical on both
-backends.
+One row per query for an arbitrary mangled name, produced through the native
+`r_bin_demangle` API. No `iD`/`iDj` command is constructed or parsed.
+Visible columns: `demangled` (TEXT, empty on failure), `error` (TEXT, empty
+on success). Hidden inputs: `mangled` (required), `lang` (optional).
+If omitted, `lang` uses the host's `bin.lang` setting; radare2 may select a
+demangler from the mangled-name prefix. Failure is an empty `demangled` with
+a populated `error`, not a successful unchanged name. Mangled names are
+passed as data, including MSVC's `?`, `@` and `$` characters.
 
 ### Point-lookup recipes (not tables)
 
@@ -451,12 +420,7 @@ disambiguate (same "don't guess" posture as the `syscalls`-resolution
 refusal); cross-check `bytes` for a stronger mapped/unmapped guarantee.
 `max_len` is a plain validated integer with no free-text argument anywhere
 on this table's surface, so there is no charset-allowlist injection surface
-to defend (unlike `assemble`/`demangle`); `Backend::cmd_noeval` is still
-wired in for defense-in-depth and consistency with every other
-address-scoped read on the libr backend, not because a real gap was found
-here. Command-path only, identical on both backends (one
-full-scan-equivalent command, no C-API producer needed — same reasoning
-`bininfo`/`demangle`/`assemble` already documented for themselves).
+to defend. The `pszj` read uses literal address-scoped command dispatch.
 
 ## `patches` (writable — `io.cache` byte-patch overlay)
 Source: `wcj`. A revertible byte-patch overlay distinct from a direct byte
@@ -491,8 +455,7 @@ reads `wcj`'s `"before"`.
   reverting the wrong patch. DELETE on an already-committed row is also
   refused (undo semantics there are unverified).
 
-Command-path only (`wx`/`wci`/`wcu`/`wcj`) — identical on both backends, no
-C-API port.
+Uses the host's `wx`/`wci`/`wcu`/`wcj` handlers; staging is dispatched literally.
 
 ## `rop_gadgets` / `rop_gadget_instructions` (read-only)
 ROP/JOP/COP gadget search. Source: r2's `/g` gadget-search family (`/gj`,
@@ -500,9 +463,9 @@ ROP/JOP/COP gadget search. Source: r2's `/g` gadget-search family (`/gj`,
 `rop_gadget_instructions` is one row per constituent instruction, keyed back
 by `gadget_addr`. No predicate is required — an unfiltered scan is a real,
 bounded answer. Default search scope is `io.maps.x` (executable maps only,
-**not** r2's own CLI default of `io.maps`), applied atomically (`search.in`
-leaks past the command that sets it, same hazard as `flags.space`) and
-restored to r2's documented default afterward.
+**not** r2's own CLI default of `io.maps`), selected for the search through native config APIs. The caller's actual
+`search.in` value is saved and restored, including a nondefault setting.
+The search handler receives the command literally without expression evaluation.
 
 `rop_gadgets`: `addr` (first instruction), `retaddr` (the gadget's own
 *terminating* instruction address — not a resolved branch target), `size`
@@ -604,7 +567,7 @@ MSVC targets carry the full ground truth (exact method counts, exact base
 relationships). **On GCC/Clang targets do not rely on `base_name` to
 reconstruct a hierarchy, and do not read a missing class as proof it is
 absent** — cross-check `vtable_addr` and raw `acllj`. This is radare2's `avrr`
-recovery gap, not an r2xsql defect: both backends agree with each other on both
+recovery gap, not an r2xsql defect: the plugin reflects the host's results on both
 platforms.
 
 ## `registers` (read-only)
@@ -643,11 +606,9 @@ targets), `demname` (TEXT, nullable, `name` demangled), `sym_vaddr` (INT64,
 nullable, populated only for a symbol-backed — not import-backed — reloc),
 `is_ifunc` (INT, 1 for a GNU IFUNC resolver relocation, ELF-only).
 
-No `addend` column: the underlying `RBinReloc` struct carries one, but
-`irj`'s own JSON emission never includes it, and this table has no C-API
-producer to read it from the struct directly — adding the column would read
-NULL on every row forever. No pushdown: relocation tables run hundreds to
-low thousands of rows, small enough for one full `irj` scan.
+No `addend` column is exposed. The native relocation reader preserves the
+documented `irj`-equivalent schema. No pushdown: the table reads the host's
+relocation collection in one scan.
 
 ## `libs` (read-only)
 The binary's linked/imported library list. Source: `ilj` — a bare JSON array
@@ -712,14 +673,12 @@ every function (`aflj`). Canonical cross-tool operand schema.
 | `text`, `type_name` (`register`/`immediate`/`memory`/…) | TEXT |
 
 ## `xrefs` (read-only)
-Source: per-function `afxj @ <fn>` (walks `aflj`; the global `axj` only
-reports refs at the current seek, so it is empty on a fresh session).
-`WHERE to_addr = X` is pushed down to `axtj @ X`; `WHERE from_addr = X`
-is pushed down to `axfj @ X`; `WHERE from_func = X` is pushed down to
-`afxj @ X` (one function's references — `X` must be the function's START
-address, since that is what `from_func` holds). **r2xsql fills this table from radare2's
-in-process analysis state instead of running those commands** — identical rows,
-roughly an order of magnitude faster on a large binary.
+Source: the host's global xref store, including references whose source is
+outside every analysed function. The full scan uses `r_anal_refs_get` with
+`UT64_MAX`; `to_addr` and `from_addr` filters read that same store. Each
+reference appears once, including when functions overlap. `from_func` is the
+owning function's start address or NULL outside any function. A
+`WHERE from_func = X` filter is scoped to a real function start address.
 
 | `from_addr`, `to_addr` | INT64 |
 | `from_func` (owning function's ADDRESS; NULL outside any function — join to `funcs.addr`) | INT64 |
@@ -847,20 +806,19 @@ Columns: `func_addr`, `text`. `WHERE func_addr = X` is pushed down so only
 that one function is decompiled; an unfiltered scan decompiles all (slow).
 
 ## `types` (writable: DELETE, INSERT)
-Source: `tk*` (sdb dump of NAME=KIND) enriched with `tj` (atomics) and
-`tsj`/`tuj` (compound size aggregation).
+Source: the host's native type database. Its rows correspond to `tk*`
+(NAME=KIND), `tj` (atomics) and `tsj`/`tuj` (compound members and size).
 
-- `DELETE FROM types WHERE name = 'X'` ⇒ `t- X` (remove a type).
-- `INSERT INTO types (name, kind) VALUES ('X', 'struct')` ⇒ `td "struct X {};"`
+- `DELETE FROM types WHERE name = 'X'` removes a type through native APIs.
+- `INSERT INTO types (name, kind) VALUES ('X', 'struct')` uses native C parsing
   — creates an **empty** struct/union/enum shell. `kind` must be one of
   those three; anything else is rejected (an atomic type needs a real
   primitive, a typedef needs a target type, a func needs a signature — none
   of which a bare name+kind can supply without inventing one).
 - A full typed declaration (members, an underlying primitive, a signature,
-  …) doesn't fit the row columns either way — use the
-  radare2's own `td <one-line C decl>` command, which the empty-shell INSERT
-  above is itself built on. It reaches the session over the same transport as
-  the SQL, so there is no SQL wrapper for it.
+  …) doesn't fit the row columns — send radare2's own
+  `td <one-line C decl>` command through the same transport as the SQL.
+  There is no SQL wrapper for a full declaration.
 
 | col | type | notes |
 |---|---|---|
@@ -875,22 +833,13 @@ every query (this table has no cross-query cache since the type database is
 mutable) — it agrees for a given name across two queries only while the type
 set stays unchanged in between; an intervening INSERT/DELETE/
 `td` shifts the alphabetical position of every name sorting
-after the change. Never derived from an address, and identical on both
-backends (they share the same command-based producer).
+after the change. Never derived from an address, and is read from the host's native type database.
 
 Notes:
-- The full type set (e.g. the ~6700 Windows API typedefs) lives in r2's
-  `share/fcnsign/types-*.sdb` data files. Live auto-detection in the
-  **libr** backend only finds them when r2xsql is run from the radare2
-  install `bin/` directory (so the in-process r2 finds `../share`); run it
-  elsewhere and, as of the same build that also fixed `funcs.calltype`/
-  `funcs.stackframe`, it falls back to the radare2 prefix the build was
-  actually configured against, so `types` still loads fully — no more
-  collapse to a handful of built-ins in the common case. r2xsql still warns
-  when *neither* the live path nor the build-time fallback can find the
-  data dir. The **r2pipe** backend always gets the full set regardless,
-  since the spawned `radare2.exe` resolves its own data dir. See
-  `connect/references/deployment.md` → "radare2 data directory".
+- Calling conventions, syscall data and platform typedefs depend on the host's
+  installed data files. The plugin inherits the host's data directory. C++
+  embedders creating their own RCore can also use the configured build-prefix
+  fallback. See `connect/references/deployment.md` for host diagnostics.
 
 ## `types_members` (read-only)
 Source: per-type `tsj NAME` / `tuj NAME` / `tej NAME`.
@@ -1059,11 +1008,11 @@ of which plan SQLite picks. `string_refs.string_value` is `strings.content`.
   materialization; `assemble` requires `asm` and pushes optional `addr` into
   one `pa` call; `search_asm` requires `asm` and pushes optional
   `max_results` into one `/a` search; `demangle` requires `mangled` and
-  pushes optional `lang` into one `iDj` call; `read_cstr` requires `addr` and
+  passes optional `lang` to the native demangler; `read_cstr` requires `addr` and
   pushes optional `max_len` into one `pszj` call.
 - **Parametric pushdowns (`parametric_filter`, all named columns required
   together): 1** — `instructions.start_addr` + `instructions.count`, the
   arbitrary-address disassembly range read (`pdj N @ X`).
-- **Raw passthrough** — `Session::raw_cmd`; CLI `.`-prefixed `-q`/REPL;
-  r2's own `POST /cmd/` with the command as the body — the same endpoint the
+- **Raw passthrough** — `Session::raw_cmd` for C++ embedders; the host console,
+  external r2pipe clients, and radare2's own `POST /cmd/` with the command as the body — the same endpoint the
   SQL goes to, so no SQL escape hatch is needed.

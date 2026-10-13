@@ -113,7 +113,7 @@ WHERE name NOT LIKE 'std::%' AND name <> 'type_info';
   | methods per class | 3 | 4 |
 
   This is radare2's `avrr` recovery, not an r2xsql defect — r2xsql surfaces
-  whatever `avrr` produces, and both backends agree with each other on both
+  whatever `avrr` produces, and the plugin reflects the host's results on both
   platforms. **Practical consequence on GCC/Clang targets: do not rely on
   `base_name` to reconstruct a hierarchy, and do not treat a missing class as
   proof it does not exist.** Cross-check with `vtable_addr` and the raw

@@ -55,7 +55,7 @@ SELECT from_addr, from_func FROM xrefs WHERE to_addr = 0x412ab0;
 -- (3) annotate that function
 UPDATE flags    SET name = 'license_fail_log'           WHERE addr = 0x401a10;
 UPDATE comments SET text = 'logs license-check failure' WHERE addr = 0x401a10;
-UPDATE comments SET text = 'msg = "license check failed"' WHERE addr = 0x401b34;
+INSERT INTO comments(addr, text) VALUES (0x401b34, 'msg = license check failed');
 
 -- (4) two hops back: who calls license_fail_log?
 SELECT cf.name FROM xrefs x
@@ -79,8 +79,8 @@ Each pass over the binary makes the *next* pass cheaper:
 - **Pass 3**: start naming dispatchers and state machines based on
   what their callees do.
 
-Persist with `Ps` (the backend does this automatically when
-`-w` was passed and you ran `Ps NAME`). Reopen with `-p NAME` to
+Persist explicitly with `Ps NAME` before exiting; the plugin does not save
+automatically. Reopen with `-p NAME` to
 skip re-analysis and keep building.
 
 ## Type reconstruction

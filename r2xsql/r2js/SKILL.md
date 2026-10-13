@@ -22,9 +22,9 @@ Pick this skill when SQL alone can't answer the question:
 
 ## How r2xsql exposes raw r2 access
 
-r2xsql holds a `Backend` (either `LibrBackend` or `R2PipeBackend`) and
-forwards arbitrary commands through `Session::raw_cmd(std::string)`.
-From the CLI, raw r2 commands are reachable via:
+The plugin shares its host radare2's `RCore` through `LibrBackend`. There is
+no r2xsql CLI or internal r2pipe backend. Send raw commands directly to the
+host through the same transport that carries `sql` and `sqlj`:
 
 | transport          | syntax                                              |
 |--------------------|-----------------------------------------------------|
@@ -88,22 +88,22 @@ patched_bytes) VALUES(...)` stages a raw hex patch, `UPDATE patches SET
 committed = 1 WHERE addr = ...` commits it (see the `data` skill's
 `patches` section for the full column set and the commit/undo scoping
 caveats — commit is table-wide, undo is stack-top-only). Reach for r2js
-only when `patches` genuinely can't express what you need: an
-assembled-instruction patch (`wa`) or a string/zero-terminated write (`wz`)
-instead of raw hex, which `patches` doesn't support in its current version.
+only when `patches` can't express what you need, such as a string or
+zero-terminated write (`wz`). For an assembled instruction, use
+`INSERT INTO patches(addr, asm_text) VALUES (0x401234, 'nop')`.
 
 ```js
-r2cmd("wa nop @ 0x401234");        // assembled patch -- not a `patches` INSERT
-r2cmd("Ps");                       // persist via project
+r2cmd("wz example @ 0x401234");    // direct zero-terminated string write
+r2cmd("Ps demo");                  // save the analysis project
 ```
 
 ## Caveats
 
-- `Session::raw_cmd` bypasses the table layer entirely — there's no
-  parsing, no schema, no pushdown. You're responsible for parsing
-  whatever r2 prints.
+- Raw r2 commands bypass the SQL table layer. You're responsible for parsing
+  whatever r2 prints. C++ embedders can use `Session::raw_cmd` for this;
+  plugin users send commands to radare2 itself.
 - r2js scripts run inside r2 (not inside r2xsql) — they don't see
   the SQL database directly. Bridge via flags/comments as above.
-- Raw passthrough is available on every transport: `-q "."`/REPL from
-  the CLI, `.r2cmd <command>` over HTTP, and the host shell in the in-r2
-  plugin. The raw path bypasses the table layer (no schema, no pushdown).
+- Use the r2 console, an external r2pipe client's `cmd()`, or radare2's
+  `POST /cmd/` endpoint. Send the raw command as-is; there is no `.r2cmd`
+  wrapper. External r2pipe clients remain supported as radare2 transports.

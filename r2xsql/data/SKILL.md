@@ -41,7 +41,7 @@ For cross-references between code and data, use `xrefs`.
 | `byte_search` | `/xj` + `p8` | `addr`, `matched_hex`, `matched_bytes`, `size`; hidden pattern/bounds |
 | `assemble`    | `pa`   | `hex`, `bytes`, `size`, `error`; hidden `asm` (required), `addr` |
 | `search_asm`  | `/a`   | `addr`, `matched_hex`; hidden `asm` (required), `max_results` |
-| `demangle`    | `iD`/`iDj` | `demangled`, `error`; hidden `mangled` (required), `lang` (optional) |
+| `demangle`    | native `r_bin_demangle` | `demangled`, `error`; hidden `mangled` (required), `lang` (optional) |
 | `read_cstr`   | `pszj` | `content`, `length`, `section`, `type`, `truncated`, `error`; hidden `addr` (required), `max_len` (optional, default 128) |
 | `patches`     | `wcj` (write-cache) | `addr`, `size`, `original_bytes`, `patched_bytes`, `asm_text`, `committed` — **writable** |
 | `strings`     | `izj`  | `addr`, `length`, `section`, `type`, `content`, `paddr` |
@@ -178,13 +178,12 @@ in-process binary state on the in-process build (`r_bin_get_strings`,
 `RBinImport`, `RBinAddr`/`RBinSymbol` respectively) instead of running
 `izj`/`iij`/`iej`+`iEj` and parsing the JSON — identical rows either way,
 including `imports.name`'s demangling and `entries.name` staying the
-ORIGINAL (never demangled) name on both build flavors. None of these three
+ORIGINAL (never demangled) name. None of these three
 needs an analysis pass: they read the loaded binary's own metadata.
 
-`relocs`/`libs` are each already ONE full-scan command (`irj`/`ilj`) with no
-per-function/per-address loop to collapse, so both stay command-path-only on
-every build flavor — no C-API producer exists or is needed. Neither needs an
-analysis pass either: both read the loaded binary's own bin-info directly.
+`relocs` and `libs` also read native binary metadata. Their row shapes
+correspond to `irj` and `ilj`, but the plugin does not parse those commands'
+JSON. Neither table requires an analysis pass.
 
 ## Caveats
 
@@ -220,9 +219,10 @@ analysis pass either: both read the loaded binary's own bin-info directly.
   FROM patches` always reads empty, even for the row it just created.
 - `assemble`/`search_asm`/`patches.asm_text` all charset-validate the
   mnemonic text (letters, digits, space, and `,.+-*/[]():%#_$`) before
-  splicing it into a command — real assembly text never needs `;`/`@`/`|`/
-  backtick/quotes, so this is enough to make the value injection-safe without
-  quoting. `assemble` and `patches.asm_text` are also address-scoped: the
+  dispatching it literally. The charset check alone is not an injection
+  boundary: `$()` and `#` are valid assembly characters. Literal dispatch
+  prevents radare2 from evaluating them as command substitution or comments.
+  `assemble` and `patches.asm_text` are also address-scoped: the
   encoding depends on which address the instruction lands at (pc-relative
   branches, rip-relative loads), so pass `addr` (or the patch's own target
   address) rather than relying on whatever the session happens to be seeked
@@ -234,9 +234,9 @@ analysis pass either: both read the loaded binary's own bin-info directly.
 - `/a` (backing `search_asm`) similarly has **no working JSON mode**:
   appending `j` right after `/a` is NOT this command's JSON flag — it
   misroutes to the unrelated `/at` (search-by-instruction-**type**) family
-  instead (verified live; do not try `.r2cmd /aj ...` expecting a JSON
+  instead (verified live; do not send `/aj ...` expecting a JSON
   assemble-search). `search_asm` parses the plain-text hit lines itself.
-- `demangle`'s `lang` is always advisory: radare2 auto-detects the actual
+- `demangle` calls radare2's native `r_bin_demangle` API. Its `lang` is advisory: radare2 auto-detects the actual
   demangler from the mangled text's own prefix (`_Z`/`__Z`/`?`/…) regardless
   of what `lang` says, and an unrecognized `lang` string does not abort the
   call — it just falls through to auto-detection. `demangled` is empty (with

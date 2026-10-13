@@ -1,5 +1,32 @@
 # Driving r2xsql over radare2's HTTP server
 
+## User handoff to an AI agent
+
+Tandem can use an interactive r2 CLI, its visual/panels text interface, or
+iaito's GUI. With a binary analyzed and the matching plugin loaded, enter
+these commands at r2's prompt or iaito's **View > Console**:
+
+```text
+e http.bind=127.0.0.1
+e http.sandbox=false
+=h& 9090
+```
+
+`e` sets radare2 configuration. `http.bind` selects the listening interface;
+`127.0.0.1` accepts connections from this machine. `http.sandbox=false` permits
+the full command workflow, including filesystem writes for project saves.
+`=h PORT` serves in the foreground; `=h& PORT` serves in the background and
+keeps the GUI/console available. Use the latter for tandem mode. Radare2's
+native remote-command help (`=?`) also lists these HTTP commands.
+Start HTTP at the prompt before entering r2's text interface. No GUI is needed
+for tandem; the agent attaches to the analysis already open in the human's host.
+
+Choose a free port, wait for the server's `open http://` message, then tell the
+agent **Use r2xsql at http://127.0.0.1:9090** and ask an analysis question.
+The user need not write SQL. The agent checks `?V` and `Lcj`, issues quoted
+`sqlj` commands through POST `/cmd/`, and reuses that endpoint on follow-ups.
+The SQL/curl examples below describe the agent's side of the connection.
+
 r2xsql has **no server of its own**. It is a radare2 core plugin registering the
 `sql` and `sqlj` commands, and radare2's own HTTP server (`=h`) carries them —
 along with r2pipe, the console and MCP, all of which reach the same command
@@ -11,10 +38,13 @@ That is the point of the design: there is one port, radare2's, and one endpoint,
 ## Start
 
 ```bash
-# headless — blocks, serving; nobody is attached
-radare2 -e http.sandbox=false -c 'aaa; =h 9090' <binary>
+# fresh headless target, with an installed matching plugin
+radare2 -N -q -c aaa -c 'e scr.html=false' \
+  -c 'e http.bind=127.0.0.1' -c 'e http.sandbox=false' \
+  -c '=h 9090' <binary>
 
 # shared session — from inside an interactive r2 or iaito's console
+e http.bind=127.0.0.1
 e http.sandbox=false
 =h& 9090
 ```
@@ -24,6 +54,50 @@ e http.sandbox=false
 
 **Pick the port yourself and make sure it is free.** Under `=h&` a bind failure
 retries forever rather than erroring out.
+
+### Background process launch
+
+Discover `r2` or `radare2` from PATH or the user's installation context. With
+a matching installed plugin, startup discovers r2xsql automatically; no `L`
+path is needed. `-N` retains plugin loading, while `-NN` suppresses it. For an
+uninstalled build use `-NN` and explicit `L <matching-plugin-file>` before
+analysis or project restoration. Do not infer a build path or invent `L r2xsql`.
+
+POSIX shell, fresh executable:
+
+```sh
+r2 -N -q -c aaa -c 'e scr.html=false' \
+  -c 'e http.bind=127.0.0.1' -c 'e http.sandbox=false' \
+  -c '=h 9090' ./target.exe >r2.stdout.log 2>r2.stderr.log &
+r2_pid=$!
+```
+
+Windows PowerShell, fresh executable:
+
+```powershell
+$engine = Get-Command r2,radare2 -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if (-not $engine) { throw 'Install radare2 or supply its executable location.' }
+$target = (Resolve-Path -LiteralPath '.\target.exe').Path
+$port = 9090 # choose a free port for this host
+$logDir = Join-Path $env:TEMP ('r2-session-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $logDir | Out-Null
+$arguments = '-N -q -c aaa -c "e scr.html=false" -c "e http.bind=127.0.0.1" -c "e http.sandbox=false" -c "=h {0}" "{1}"' -f $port,$target
+$process = Start-Process -FilePath $engine.Source -ArgumentList $arguments -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $logDir 'stdout.log') `
+    -RedirectStandardError (Join-Path $logDir 'stderr.log') -PassThru
+$endpoint = 'http://127.0.0.1:{0}/cmd/' -f $port
+```
+
+These are direct native-process launches, not session wrappers. Save the PID,
+endpoint, binary/project mapping and log locations in conversation context.
+Wait for readiness, then check host/plugin/target identity. Keep the process
+alive across prompts. Use native r2 and curl for analysis rather than build
+tooling or Python session/query wrappers.
+
+For a saved project replace `aaa` with `P <absolute-project-file>` (quoted as
+one `-c` argument), retaining the original binary. HTTP settings must follow
+`P`, since project restoration also restores configuration. Do not pass `-A`.
 
 ### Readiness
 
@@ -66,6 +140,16 @@ curl -X POST http://127.0.0.1:9090/cmd/ -d '"sql,:csv SELECT name, size FROM fun
 curl -X POST http://127.0.0.1:9090/cmd/ -d '?V'
 curl -X POST http://127.0.0.1:9090/cmd/ -d 'afn parse_header @ 0x401000'
 ```
+
+PowerShell should invoke `curl.exe` explicitly. For example:
+
+```powershell
+$command = '"sqlj SELECT name,size FROM funcs ORDER BY size DESC LIMIT 10"'
+curl.exe --silent --show-error --max-time 30 --data-binary $command $endpoint
+```
+
+Inspect the complete JSON envelope. Use `UPDATE funcs` for requested renames
+and read them back; do not treat an HTTP status alone as success.
 
 ### The command MUST be double-quoted
 
@@ -144,29 +228,50 @@ errors, multi-statement results, or timings. Use `sqlj` in code.
 
 ## Lifecycle
 
-Projects and shutdown are radare2 commands, not SQL:
+Projects and shutdown are native radare2 commands on the same connection.
+There is currently no SQL `save_database()`. "Save the database" means save
+the native analysis project, normally beside the executable:
 
 ```bash
-curl -X POST http://127.0.0.1:9090/cmd/ -d 'Ps triage1'   # save
-curl -X POST http://127.0.0.1:9090/cmd/ -d 'q!!'          # stop the server and exit
+curl --data-binary 'Ps /absolute/path/target.exe.r2' http://127.0.0.1:9090/cmd/
 ```
+
+PowerShell:
+
+```powershell
+$project = $target + '.r2' # $target is already an absolute path
+curl.exe --silent --show-error --max-time 30 --data-binary ('Ps ' + $project) $endpoint
+Get-Item -LiteralPath $project
+```
+
+Use the actual absolute path; relative filenames are interpreted as project
+names and are not interchangeable with adjacent file paths. Bare `Ps triage`
+uses `dir.projects`. Inspect save errors, verify the file was updated and
+contains the expected annotations, and report its location. For important
+checkpoints, verify a short-lived restore without stopping the live host.
+`Pl` / the SQL `projects` table lists named projects, not arbitrary sidecars
+outside `dir.projects`. Keep the original binary and companion `.r2.d`
+directory. The native project is not a cached SQL result or SQLite export.
+
+Saving alone leaves the session running. A follow-up uses that same core.
 
 ### Stopping cleanly
 
 There are two ways to stop, and they differ in what survives:
 
 ```bash
-curl "http://127.0.0.1:9090/cmd/=h--"                    # stop serving, keep r2
-curl -X POST http://127.0.0.1:9090/cmd/ -d 'q!!'         # stop serving, exit r2
+curl "http://127.0.0.1:9090/cmd/=h--"                    # stop foreground serving
+curl -X POST http://127.0.0.1:9090/cmd/ -d 'q!!'         # force process exit
 ```
 
 `=h--` unwinds the accept loop and **hands control back to radare2**, so any
-commands chained after `=h` run at that point. That makes a self-finishing
-headless session possible:
-
-```bash
-radare2 -e http.sandbox=false -c 'aaa; =h 9090' -c 'Ps myproject' -c 'Pl' <file>
-```
+commands chained after `=h` run at that point. With an agent-owned `-q`
+headless launch and no later commands, r2 exits when the loop returns.
+On an explicit save-and-shutdown request, save and verify before stopping the
+loop, then verify the PID/listener stopped. Do not close other hosts.
+In tandem mode, stop background HTTP with `=h-` at the interactive prompt or
+GUI console if needed; keep the human's host open. Process-exit commands are
+for agent-owned headless hosts, not the user's interactive session.
 
 **`=h--` only works as a GET.** It is matched against the request *path*, so
 sent as a POST body it falls through to normal command dispatch, logs
@@ -174,19 +279,34 @@ sent as a POST body it falls through to normal command dispatch, logs
 from the client it is an empty HTTP 200 and nothing appears to happen. This is
 the one place where GET is required; everything else should be POST.
 
-Three traps:
+Two traps:
 
 - **`q!` does not stop the server.** It keeps serving. Use `q!!` or `=h--`.
 - **A failed `Ps` is invisible.** Under the default `http.sandbox=true` the
   write is refused, but the error goes to the *server's* stderr and the response
-  is an empty body with HTTP 200 — identical to success. Confirm with
-  `"sql SELECT * FROM projects"` or `Pl`.
+  is an empty body with HTTP 200 — identical to success. Verify the saved file;
+  use `Pl` / `projects` additionally for named projects.
 
 Resume a saved project instead of re-analyzing:
 
 ```bash
-radare2 -e http.sandbox=false -p triage1 -c '=h 9090' <binary>
+radare2 -N -q -c 'P /absolute/path/target.exe.r2' \
+  -c 'e scr.html=false' -c 'e http.bind=127.0.0.1' \
+  -c 'e http.sandbox=false' -c '=h 9090' <original-binary>
 ```
+
+Restore before the first SQL query, since plugin session bootstrap binds to
+the host's analysis core. Verify restored identity, function inventory and
+known annotations. If only the project path is supplied, inspect its native
+metadata to locate the executable. Do not analyze the `.r2` file as a binary.
+If the matching host is already alive, reuse it instead of launching another.
+
+Native r2 6.2.2 can replay a saved DLL project with the same function count
+but lose names at some addresses, accompanied by `Cannot add dupped function`
+errors. Compare saved annotations with the restored address/name inventory,
+not merely counts. Preserve the checkpoint and logs on failure; do not save
+the failed restored state over the checkpoint. This is a known host restore
+defect requiring a source fix, not a guarantee supplied by the HTTP workflow.
 
 ## Sandbox
 

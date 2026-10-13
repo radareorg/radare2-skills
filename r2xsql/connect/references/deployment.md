@@ -9,8 +9,7 @@ no CLI and no server of its own — radare2 is the host and the transport.
 | macOS | `core_r2xsql.dylib` |
 | Windows | `core_r2xsql.dll` |
 
-The `core_` prefix is **mandatory**: radare2's loader scans for it to identify
-`R_LIB_TYPE_CORE` plugins. Renaming the file makes it invisible.
+Keep the distributed `core_r2xsql` filename when installing it.
 
 ## Where it goes
 
@@ -18,10 +17,17 @@ Ask radare2 rather than guessing — the path varies by platform, install method
 and version:
 
 ```bash
-radare2 -N -q -c 'e dir.plugins'
+radare2 -NN -H R2_USER_PLUGINS
 ```
 
-Drop the file there. Confirm it loaded, and check its version:
+Copy the matching file there and restart the host. Normal startup discovers
+it automatically, with no `L` command or plugin path. `-N` keeps plugin
+loading enabled; `-NN` disables it. `L r2xsql` is not a package-name loader:
+explicit `L` takes a library file. Installation through `r2pm -U` followed by
+`r2pm -ci r2xsql` is the usual source-build option; `r2pm -bi r2xsql` requires
+a matching binary release asset.
+
+Confirm it loaded, and check its version:
 
 ```bash
 radare2 -q -c 'Lcj' /bin/ls | jq '.[] | select(.name=="r2xsql")'
@@ -91,7 +97,7 @@ radare2 -q -c 'Lcj' /bin/ls | jq '.[] | select(.name=="r2xsql") | .version'
 # 2. the command surface answers
 radare2 -q -c '"sql SELECT 1 AS ok"' /bin/ls
 
-# 3. against a real analyzed binary (-A runs `aaa`; without it funcs is empty)
+# 3. fresh binary (-A runs `aaa`; omit it when restoring a saved project)
 radare2 -q -A -c '"sqlj SELECT COUNT(*) AS n FROM funcs"' /bin/ls
 ```
 
