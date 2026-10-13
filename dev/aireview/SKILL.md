@@ -36,6 +36,7 @@ A review comment that contradicts a rule stated here is a suggestion, not eviden
 - **Unknown as a value**: a missing key or failed lookup treated as a real value such as `0`, and input classes the change skips: explicit zero, malformed, typedef or alias, exhausted resource
 - **Wrong expectations**: a test golden that records what the code prints rather than what is correct, or depends on the host, a temporary variable name or an absolute offset
 - **Input-shape cost**: work that grows super-linearly with a reachable input (nested types, aliased or repeated entries, a large table); back it with a timing on a synthetic worst case
+- **Type mismatch**: an index, count or sentinel whose type differs from the table it indexes or the API it is compared against (`int` beside `ut32 *idxs`, `ut32` holding a `size_t` length, `-1` where the neighbours use `UT32_MAX`)
 - **Sibling defects**: the defect the diff fixes, still present in the other functions it touches or elsewhere in the patched file
 - **Reimplementation**: New code duplicating an existing API, helper, or command — including plain libc calls where `r_util` has a richer equivalent (e.g. repeated `strrchr` scans vs `r_str_rchr` with a resume position); only flag when you can name the existing symbol
 - **Test adequacy**: a hunk no added test notices when reverted alone, a fix with no inverse case where it must stay inert, two cases on one code path; name the test file the case belongs in

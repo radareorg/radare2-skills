@@ -32,6 +32,7 @@ Then improve the code quality following these rules:
 - Define and assign variables in the very same line if possible
   Prefer `bool a = true;` instead of `bool a; a = true;`
 - Use the correct type for variables and return types. f.ex: use bool instead of int when possible values are 0 or 1.
+- Give an index, position, count or length the type of the table it indexes or the API it is compared against (`ut32 last` beside `ut32 *idxs`, `size_t` for a `*_length` result), never a generic `int`; the sentinel follows the type, `UT32_MAX` not `-1`
 - Return the comparison itself instead of `cond? 1: 0`, and mark a small file-local predicate `static inline`
 - Give new locals and test functions descriptive names; `on`, `lead` or `f4` make the reader recover the meaning from the body
 - Read a value the caller already holds (a loaded table, a precomputed set, block or function membership) instead of recomputing or re-parsing it
