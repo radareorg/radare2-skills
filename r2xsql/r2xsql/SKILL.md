@@ -15,8 +15,9 @@ Choose the session from the user's intent and known context:
   visual/panels text interface or iaito GUI host, verify its binary identity
   and reuse the open analysis. Do not launch another interactive host.
 - **Fresh executable:** start native r2 as a background OS process, analyze
-  once with `aaa`, then serve with foreground `=h PORT` inside that process.
-- **Saved project:** restore with `P <absolute-project-file>` before serving.
+  once with `aaa`, then serve with `-e http.port=PORT -c '=h'` inside that process.
+- **Saved project:** restore with `-p PROJECT` before serving; the project stores the
+  binary path. Use the matching native loader for a standalone binary container.
   Do not use `aaa` or `-A`. Keep the original executable available.
 - **Follow-up:** reuse the matching live PID/endpoint. Retain a mapping of
   session name, binary, project, endpoint and process ownership; several hosts
@@ -45,6 +46,11 @@ location. There is no SQL `save_database()` in this build. Saving does not stop
 the host; keep it running for follow-ups. On an explicit shutdown request, save
 if requested, verify first, then stop only the intended agent-owned headless
 host. In tandem mode stop the server without closing the user's interactive host.
+
+On the command line, an uninstalled matching plugin can be loaded with
+`-i PLUGIN_FILE`; `L PLUGIN_FILE` is the interactive-console equivalent.
+Native projects support binary serialization and script compatibility;
+`-i SCRIPT` interprets an explicit command-script export.
 
 The [session guide](../connect/references/server-guide.md) contains launch,
 curl, save/restore and shutdown details. User-facing installation and UI

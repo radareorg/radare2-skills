@@ -26,14 +26,18 @@ Install the matching r2xsql plugin (normally `r2pm -U` then
 The `r2xsql` entry skill supplies discovery and routing. The agent uses native
 radare2 in a background process and curl against its HTTP server. An installed
 plugin loads automatically, so normal startup needs no DLL path. `L` is a
-file-loading fallback for local builds, not a `L r2xsql` package command.
+console file-loading fallback for local builds, not a `L r2xsql` package command.
+
+Command-line local builds can use `-i PLUGIN_FILE` instead of installation.
+Native projects support binary serialization and script compatibility; an
+explicit command-script export can be interpreted with `-i SCRIPT`.
 
 Fresh binaries are analyzed once; saved projects are restored without another
 analysis pass. Follow-ups reuse the same process and endpoint. "Save the
 database" means native `Ps` to an absolute `<binary-path>.r2`, normally beside
 the executable; saving does not shut down. Keep the original executable and
 any companion `.r2.d` directory. There is currently no SQL `save_database()`.
-The [plugin README](https://github.com/radareorg/r2xsql#http-access-through-radare2)
+The [plugin README](https://github.com/radareorg/r2xsql/blob/main/docs/usage.md)
 covers the user workflow; the [session guide](connect/references/server-guide.md)
 gives the agent's direct launch/curl recipes.
 
@@ -48,7 +52,8 @@ asking the agent to analyze the open binary:
    matching [r2xsql core plugin](https://github.com/radareorg/r2xsql#using-the-plugin)
    for the chosen host's engine. Skills alone do not install the binary plugin.
 2. Start `r2 -A ./target.exe` for a fresh binary, or open it in iaito and finish
-   analysis. Restore saved projects with `P` without another analysis pass.
+   analysis. Reopen saved projects with `r2 -p PROJECT`, without a separate binary
+   argument or another analysis pass.
    Use r2's prompt or iaito's **View > Console**.
    If the plugin did not load automatically, enter `L ./core_r2xsql.dll`,
    substituting its actual location (`.so` on Linux or `.dylib` on macOS).
@@ -58,7 +63,8 @@ asking the agent to analyze the open binary:
    ```text
    e http.bind=127.0.0.1
    e http.sandbox=false
-   =h& 9090
+   e http.port=9090
+   =h&
    ```
 
    Choose a free port and wait for `open http://127.0.0.1:9090/`. `e` changes
@@ -160,7 +166,7 @@ Two rules that apply to every skill here, because both fail **silently**:
 - **Wrap SQL commands in double quotes** — `"sqlj SELECT … WHERE size > 100"`.
   r2's parser claims `>` and `|` first; unwrapped, the query returns nothing.
 - **Fresh analysis is not automatic** — run `aaa` once for a fresh binary.
-  A saved project already contains analysis: restore it with `P` / `-p`
+  A saved project already contains analysis: reopen it with `-p`
   without `-A`, and reuse the live session for subsequent questions.
 
 ## Maintaining this

@@ -9,14 +9,15 @@ these commands at r2's prompt or iaito's **View > Console**:
 ```text
 e http.bind=127.0.0.1
 e http.sandbox=false
-=h& 9090
+e http.port=9090
+=h&
 ```
 
 `e` sets radare2 configuration. `http.bind` selects the listening interface;
 `127.0.0.1` accepts connections from this machine. `http.sandbox=false` permits
 the full command workflow, including filesystem writes for project saves.
-`=h PORT` serves in the foreground; `=h& PORT` serves in the background and
-keeps the GUI/console available. Use the latter for tandem mode. Radare2's
+`http.port` selects the port; `=h` serves in the foreground and `=h&`
+serves in the background and keeps the GUI/console available. Use the latter for tandem mode. Radare2's
 native remote-command help (`=?`) also lists these HTTP commands.
 Start HTTP at the prompt before entering r2's text interface. No GUI is needed
 for tandem; the agent attaches to the analysis already open in the human's host.
@@ -32,21 +33,22 @@ r2xsql has **no server of its own**. It is a radare2 core plugin registering the
 along with r2pipe, the console and MCP, all of which reach the same command
 dispatch.
 
-That is the point of the design: there is one port, radare2's, and one endpoint,
-`/cmd/`.
+The SQL commands use radare2's native `/cmd/` transport. `=h&` is an alias
+for `& =h`, using radare2's background-task command.
 
 ## Start
 
 ```bash
 # fresh headless target, with an installed matching plugin
-radare2 -N -q -c aaa -c 'e scr.html=false' \
-  -c 'e http.bind=127.0.0.1' -c 'e http.sandbox=false' \
-  -c '=h 9090' <binary>
+radare2 -N -q -A -e scr.html=false \
+  -e http.bind=127.0.0.1 -e http.sandbox=false \
+  -e http.port=9090 -c '=h' <binary>
 
 # shared session — from inside an interactive r2 or iaito's console
 e http.bind=127.0.0.1
 e http.sandbox=false
-=h& 9090
+e http.port=9090
+=h&
 ```
 
 `e http.sandbox=false` is required for project saves to work at all; see
@@ -60,15 +62,15 @@ retries forever rather than erroring out.
 Discover `r2` or `radare2` from PATH or the user's installation context. With
 a matching installed plugin, startup discovers r2xsql automatically; no `L`
 path is needed. `-N` retains plugin loading, while `-NN` suppresses it. For an
-uninstalled build use `-NN` and explicit `L <matching-plugin-file>` before
-analysis or project restoration. Do not infer a build path or invent `L r2xsql`.
+uninstalled build use `-NN -i <matching-plugin-file>`. Restore/analyze before
+the first SQL query. Do not infer a build path or invent `L r2xsql`.
 
 POSIX shell, fresh executable:
 
 ```sh
-r2 -N -q -c aaa -c 'e scr.html=false' \
-  -c 'e http.bind=127.0.0.1' -c 'e http.sandbox=false' \
-  -c '=h 9090' ./target.exe >r2.stdout.log 2>r2.stderr.log &
+r2 -N -q -A -e scr.html=false \
+  -e http.bind=127.0.0.1 -e http.sandbox=false \
+  -e http.port=9090 -c '=h' ./target.exe >r2.stdout.log 2>r2.stderr.log &
 r2_pid=$!
 ```
 
@@ -82,7 +84,7 @@ $target = (Resolve-Path -LiteralPath '.\target.exe').Path
 $port = 9090 # choose a free port for this host
 $logDir = Join-Path $env:TEMP ('r2-session-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $logDir | Out-Null
-$arguments = '-N -q -c aaa -c "e scr.html=false" -c "e http.bind=127.0.0.1" -c "e http.sandbox=false" -c "=h {0}" "{1}"' -f $port,$target
+$arguments = '-N -q -A -e scr.html=false -e http.bind=127.0.0.1 -e http.sandbox=false -e http.port={0} -c "=h" "{1}"' -f $port,$target
 $process = Start-Process -FilePath $engine.Source -ArgumentList $arguments -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logDir 'stdout.log') `
     -RedirectStandardError (Join-Path $logDir 'stderr.log') -PassThru
@@ -95,9 +97,9 @@ Wait for readiness, then check host/plugin/target identity. Keep the process
 alive across prompts. Use native r2 and curl for analysis rather than build
 tooling or Python session/query wrappers.
 
-For a saved project replace `aaa` with `P <absolute-project-file>` (quoted as
-one `-c` argument), retaining the original binary. HTTP settings must follow
-`P`, since project restoration also restores configuration. Do not pass `-A`.
+For a saved project, replace `-A` and the target argument with `-p PROJECT`.
+The project stores the binary path; no separate target argument is needed.
+Keep the startup `-e` HTTP settings. Do not reanalyze a restored project.
 
 ### Readiness
 
@@ -145,7 +147,7 @@ PowerShell should invoke `curl.exe` explicitly. For example:
 
 ```powershell
 $command = '"sqlj SELECT name,size FROM funcs ORDER BY size DESC LIMIT 10"'
-curl.exe --silent --show-error --max-time 30 --data-binary $command $endpoint
+curl.exe --silent --show-error --max-time 30 -d $command $endpoint
 ```
 
 Inspect the complete JSON envelope. Use `UPDATE funcs` for requested renames
@@ -168,6 +170,25 @@ curl -X POST .../cmd/ -d '"sqlj SELECT name FROM funcs WHERE size > 100"'
 
 The `'…'` single-quote form does **not** substitute: it works at the console but
 still returns an empty body here. The closing `"` must be the last character.
+
+### HTTP versions
+
+For **6.2.4**, use the full double-quoted r2 command in POST `/cmd/`.
+Development radare2 adds a command prefix in the URL plus a SQL-only body,
+planned for **6.2.6**:
+
+```sh
+curl -d 'SELECT name,size FROM funcs ORDER BY size DESC LIMIT 5' \
+  http://127.0.0.1:9090/cmd/sqlj
+```
+
+Do not send the `sqlj` prefix or r2 wrapping quotes again in this SQL-only
+body. The combined command still passes through r2's parser; for SQL with
+`>` or `|`, use the full double-quoted command body at `/cmd/`.
+Verify the actual host capability using a harmless `SELECT 1` and its
+JSON envelope before choosing this form. An HTTP status is insufficient.
+Keep the full-command form for hosts without that capability. Do not blindly
+retry mutations after a transport failure; read back the affected state first.
 
 ## Response
 
@@ -233,14 +254,14 @@ There is currently no SQL `save_database()`. "Save the database" means save
 the native analysis project, normally beside the executable:
 
 ```bash
-curl --data-binary 'Ps /absolute/path/target.exe.r2' http://127.0.0.1:9090/cmd/
+curl -d 'Ps /absolute/path/target.exe.r2' http://127.0.0.1:9090/cmd/
 ```
 
 PowerShell:
 
 ```powershell
-$project = $target + '.r2' # $target is already an absolute path
-curl.exe --silent --show-error --max-time 30 --data-binary ('Ps ' + $project) $endpoint
+$project = ($target + '.r2').Replace('\','/') # absolute path; r2 uses forward slashes
+curl.exe --silent --show-error --max-time 30 -d ('Ps ' + $project) $endpoint
 Get-Item -LiteralPath $project
 ```
 
@@ -252,6 +273,13 @@ checkpoints, verify a short-lived restore without stopping the live host.
 `Pl` / the SQL `projects` table lists named projects, not arbitrary sidecars
 outside `dir.projects`. Keep the original binary and companion `.r2.d`
 directory. The native project is not a cached SQL result or SQLite export.
+
+Native projects support binary serialization and script compatibility.
+`Ps PROJECT` and `-p PROJECT` are the normal save/reopen interface; use
+`P?` and `prj?` to discover the host's format-specific operations. A
+standalone binary container can require `prj open FILE` instead of `-p`.
+Explicit command-script exports (`PS` / `PS*`) can be interpreted with
+`-i SCRIPT`; do not assume all project files are scripts.
 
 Saving alone leaves the session running. A follow-up uses that same core.
 
@@ -290,23 +318,19 @@ Two traps:
 Resume a saved project instead of re-analyzing:
 
 ```bash
-radare2 -N -q -c 'P /absolute/path/target.exe.r2' \
-  -c 'e scr.html=false' -c 'e http.bind=127.0.0.1' \
-  -c 'e http.sandbox=false' -c '=h 9090' <original-binary>
+radare2 -N -q -p /absolute/path/target.exe.r2 \
+  -e scr.html=false -e http.bind=127.0.0.1 \
+  -e http.sandbox=false -e http.port=9090 -c '=h'
 ```
 
 Restore before the first SQL query, since plugin session bootstrap binds to
 the host's analysis core. Verify restored identity, function inventory and
-known annotations. If only the project path is supplied, inspect its native
-metadata to locate the executable. Do not analyze the `.r2` file as a binary.
+known annotations. The project supplies the binary path. Do not analyze the project itself as a binary.
 If the matching host is already alive, reuse it instead of launching another.
 
-Native r2 6.2.2 can replay a saved DLL project with the same function count
-but lose names at some addresses, accompanied by `Cannot add dupped function`
-errors. Compare saved annotations with the restored address/name inventory,
-not merely counts. Preserve the checkpoint and logs on failure; do not save
-the failed restored state over the checkpoint. This is a known host restore
-defect requiring a source fix, not a guarantee supplied by the HTTP workflow.
+Compare saved names/comments with the restored state by address, not merely
+function counts. If restoration reports errors or annotations differ, preserve
+the checkpoint and logs; do not save the failed state over the checkpoint.
 
 ## Sandbox
 

@@ -42,11 +42,11 @@ radare2 -q -c 'Lcj' /bin/ls | jq '.[] | select(.name=="r2xsql")'
 For a one-off run without installing, load it by path:
 
 ```bash
-radare2 -q -c 'L /path/to/core_r2xsql.so' -c '"sql SELECT 1"' /bin/ls
+radare2 -q -i /path/to/core_r2xsql.so -c '"sql SELECT 1"' /bin/ls
 ```
 
 Add `-NN` to that if an older copy is already installed: it suppresses
-installed and user plugins, so `L` loads exactly the file you named instead of
+installed and user plugins, so `-i` loads exactly the file you named instead of
 losing a duplicate-registration race to the stale one.
 
 ## ABI versioning — read this before filing a bug

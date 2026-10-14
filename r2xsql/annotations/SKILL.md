@@ -22,7 +22,7 @@ analysis to annotate a session that is already open.
 
 On “save the database/project”, send native `Ps` over the same curl connection,
 normally to the absolute `<binary-path>.r2` beside the executable. Verify the
-artifact and report its location. Restore with native `P` without reanalysis.
+artifact and report its location. Reopen with `r2 -p PROJECT` without a separate binary or reanalysis.
 Saving alone leaves the host running. The
 [session guide](../connect/references/server-guide.md#lifecycle) contains
 save, verification, restore and shutdown recipes.
@@ -86,9 +86,16 @@ available native operations rather than inventing a SQL lifecycle API.
 
 ```
 Ps /absolute/path/target.exe.r2    save the adjacent project
-P  /absolute/path/target.exe.r2    restore before serving / first SQL query
+r2 -p /absolute/path/target.exe.r2 reopen before serving / first SQL query
 Ps triage1                        save a named project under dir.projects
 ```
+
+Native projects support binary serialization and script compatibility. Use
+`P?` / `prj?` to select the loader matching an existing artifact; explicit
+command-script exports can be interpreted with `-i SCRIPT`. Do not assume
+all project files are scripts or treat a project as a fresh binary.
+Use forward slashes in native r2 paths on Windows. Verify requested names
+and comments after reopening; preserve the checkpoint on restore failures.
 
 Reading the named project list is still SQL:
 
